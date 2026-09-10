@@ -754,6 +754,27 @@
     });
     var addTileEl = document.getElementById("addTile");
     if (addTileEl) addTileEl.addEventListener("click", function () { openModal(null); });
+
+    applyPosterImages();
+  }
+
+  // Poster URLs are only applied once confirmed loadable — a broken or
+  // hotlink-blocked link just leaves the usual colour gradient in place
+  // instead of turning the tile solid black.
+  function applyPosterImages() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-poster]"), function (el) {
+      var url = el.getAttribute("data-poster");
+      if (!url) return;
+      var img = new Image();
+      img.onload = function () {
+        el.style.backgroundImage =
+          "linear-gradient(180deg, rgba(0,0,0,.1) 0%, rgba(0,0,0,.35) 55%, rgba(0,0,0,.92) 100%), url('" +
+          url.replace(/'/g, "%27") + "')";
+        el.style.backgroundSize = "cover";
+        el.style.backgroundPosition = "center";
+      };
+      img.src = url;
+    });
   }
 
   function addTileHtml() {
@@ -781,13 +802,10 @@
       if (parts.length) topLine = '<span class="tile-meta">' + parts.join('<span class="dot">&middot;</span>') + '</span>';
     }
 
-    var bg = show.posterUrl
-      ? "background-image:linear-gradient(180deg,rgba(0,0,0,.1) 0%,rgba(0,0,0,.35) 55%,rgba(0,0,0,.92) 100%),url('" + show.posterUrl.replace(/'/g, "%27") + "');background-size:cover;background-position:center;"
-      : "";
-
     return (
       '<button type="button" class="tile" data-tile="' + show.id + '" ' +
-        'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';' + bg + '" ' +
+        (show.posterUrl ? 'data-poster="' + escapeHtml(show.posterUrl) + '" ' : '') +
+        'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';" ' +
         'aria-label="' + escapeHtml(show.name) + ', tap to edit">' +
         '<span class="tile-source">' + escapeHtml(show.source) + '</span>' +
         (show.comingSoon ? '<span class="tile-soon">Soon</span>' : '') +
