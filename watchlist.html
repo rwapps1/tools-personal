@@ -88,14 +88,18 @@
 
   .filters-row {
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
+    flex-wrap: nowrap;
+    gap: 8px;
     align-items: center;
     margin: 14px 0 20px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
+  .filters-row::-webkit-scrollbar { display: none; }
 
   .filter-group {
     display: inline-flex;
+    flex-shrink: 0;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 999px;
@@ -109,11 +113,12 @@
     color: var(--text-faint);
     font-family: var(--font-body);
     font-weight: 600;
-    font-size: 12.5px;
-    padding: 7px 13px;
+    font-size: 12px;
+    padding: 6px 11px;
     border-radius: 999px;
     cursor: pointer;
     white-space: nowrap;
+    flex-shrink: 0;
     transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   }
   .filter-group .filter-pill:hover { color: var(--text); }
@@ -530,11 +535,11 @@
 
   <div class="filters-row">
     <div class="filter-group" role="group" aria-label="Who's watching">
-      <button class="filter-pill active" data-who="all" type="button">Everyone</button>
+      <button class="filter-pill active" data-who="all" type="button">All</button>
       <button class="filter-pill" data-who="Just Me" type="button">Just Me</button>
       <button class="filter-pill" data-who="Me &amp; Emma" type="button">Me &amp; Emma</button>
     </div>
-    <button class="filter-pill toggle-pill active" id="toggleComingSoon" type="button" aria-pressed="true">Coming soon</button>
+    <button class="filter-pill toggle-pill active" id="toggleComingSoon" type="button" aria-pressed="true">Soon</button>
   </div>
 
   <div class="stat-line" id="statLine">Loading your list&hellip;</div>
@@ -582,6 +587,11 @@
       <div class="field" id="customSourceField" hidden>
         <label for="f-source-custom">Source name</label>
         <input type="text" id="f-source-custom" placeholder="e.g. Paramount+">
+      </div>
+
+      <div class="field">
+        <label for="f-poster">Poster image URL <span class="hint">(optional)</span></label>
+        <input type="text" id="f-poster" placeholder="Paste a link to a poster image">
       </div>
 
       <div class="field">
@@ -771,9 +781,13 @@
       if (parts.length) topLine = '<span class="tile-meta">' + parts.join('<span class="dot">&middot;</span>') + '</span>';
     }
 
+    var bg = show.posterUrl
+      ? "background-image:linear-gradient(180deg,rgba(0,0,0,.1) 0%,rgba(0,0,0,.35) 55%,rgba(0,0,0,.92) 100%),url('" + show.posterUrl.replace(/'/g, "%27") + "');background-size:cover;background-position:center;"
+      : "";
+
     return (
       '<button type="button" class="tile" data-tile="' + show.id + '" ' +
-        'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';" ' +
+        'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';' + bg + '" ' +
         'aria-label="' + escapeHtml(show.name) + ', tap to edit">' +
         '<span class="tile-source">' + escapeHtml(show.source) + '</span>' +
         (show.comingSoon ? '<span class="tile-soon">Soon</span>' : '') +
@@ -823,6 +837,7 @@
         customSourceField.hidden = false;
         document.getElementById("f-source-custom").value = show.source;
       }
+      document.getElementById("f-poster").value = show.posterUrl || "";
       document.getElementById("f-season").value = show.season || "";
       document.getElementById("f-episode").value = show.episode || "";
       document.getElementById(show.watchers === "Just Me" ? "w-me" : "w-us").checked = true;
@@ -944,6 +959,7 @@
     var data = {
       name: name,
       source: source,
+      posterUrl: document.getElementById("f-poster").value.trim(),
       season: document.getElementById("f-season").value.trim(),
       episode: document.getElementById("f-episode").value.trim(),
       watchers: watchers,
