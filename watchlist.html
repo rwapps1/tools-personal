@@ -1,0 +1,997 @@
+<!--
+  What We're Watching — production build
+  ----------------------------------------------------------------
+  Drop this file (and auth-guard.js, if not already present) into
+  the root of the tools-personal repo, alongside index.html etc.
+
+  Data lives in Firestore, in the "rwapps1-hub" Firebase project —
+  the same one auth-guard.js already signs you into. See the notes
+  at the very bottom of this file for the two things to set up in
+  the Firebase console before this will work end to end.
+-->
+<title>What We're Watching</title>
+<script type="module" src="./auth-guard.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0b0d;
+    --bg-2: #161619;
+    --surface: #1c1c20;
+    --surface-2: #262629;
+    --border: #2e2e32;
+    --text: #f5f5f7;
+    --text-dim: #b7b7bd;
+    --text-faint: #838389;
+    --accent: #e11d33;
+    --accent-hover: #ff3347;
+    --accent-ink: #ffffff;
+    --gold: #e8b339;
+    --gold-ink: #2a1d02;
+    --radius-lg: 20px;
+    --radius-md: 14px;
+    --radius-sm: 9px;
+    --font-display: 'Bebas Neue', system-ui, sans-serif;
+    --font-body: 'Inter', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height: 100vh;
+    padding: 30px 20px 90px;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+
+  /* ---------- header ---------- */
+
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 18px;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 22px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .title-block h1 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: clamp(34px, 5vw, 48px);
+    letter-spacing: 0.5px;
+    margin: 0 0 4px;
+    text-wrap: balance;
+    line-height: 1;
+  }
+  .title-block h1 span { color: var(--accent); }
+
+  .title-block p {
+    margin: 0;
+    color: var(--text-faint);
+    font-size: 14px;
+    max-width: 48ch;
+    line-height: 1.5;
+  }
+
+  .add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    border: none;
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 14px;
+    padding: 11px 18px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.15s ease, transform 0.15s ease;
+  }
+  .add-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+  .add-btn:active { transform: translateY(0); }
+  .add-btn svg { width: 17px; height: 17px; }
+  .add-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
+
+  button:focus-visible, select:focus-visible, input:focus-visible,
+  textarea:focus-visible, .tile:focus-visible {
+    outline: 2px solid var(--accent-hover);
+    outline-offset: 2px;
+  }
+
+  /* ---------- stat line ---------- */
+
+  .stat-line {
+    font-size: 13px;
+    color: var(--text-faint);
+    margin: 4px 0 26px;
+  }
+  .stat-line strong { color: var(--text-dim); font-weight: 600; }
+
+  /* ---------- rows ---------- */
+
+  .row { margin-bottom: 34px; }
+
+  .row-title {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin: 0 0 14px;
+  }
+  .row-title h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 22px;
+    letter-spacing: 0.5px;
+    margin: 0;
+    text-transform: uppercase;
+  }
+  .row-title .count {
+    font-size: 12px;
+    color: var(--text-faint);
+    font-weight: 600;
+  }
+  .row.coming .row-title h2::before {
+    content: '';
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    background: var(--gold);
+    border-radius: 2px;
+    margin-right: 9px;
+  }
+  .row.ready .row-title h2::before {
+    content: '';
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    background: var(--accent);
+    border-radius: 2px;
+    margin-right: 9px;
+  }
+
+  .row-scroll {
+    display: flex;
+    gap: 14px;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    padding: 4px 4px 14px;
+    margin: -4px -4px -14px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .row-scroll::-webkit-scrollbar { height: 6px; }
+  .row-scroll::-webkit-scrollbar-track { background: transparent; }
+  .row-scroll::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
+
+  /* ---------- tile ---------- */
+
+  .tile {
+    position: relative;
+    flex: 0 0 156px;
+    aspect-ratio: 2 / 3;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    padding: 0;
+    scroll-snap-align: start;
+    background: linear-gradient(150deg, var(--source-color, #3a3a3e) 0%, #0c0c0d 78%);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, z-index 0s;
+    text-align: left;
+    font-family: var(--font-body);
+    color: var(--text);
+  }
+  .tile:hover, .tile:focus-visible {
+    transform: scale(1.08);
+    z-index: 3;
+    box-shadow: 0 20px 44px -14px rgba(0,0,0,0.75);
+  }
+
+  .tile::before {
+    content: attr(data-initial);
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -58%);
+    font-family: var(--font-display);
+    font-size: 96px;
+    color: rgba(255,255,255,0.14);
+    line-height: 1;
+    pointer-events: none;
+  }
+
+  .tile-scrim {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 12px 10px 10px;
+    background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.92) 100%);
+  }
+
+  .tile-name {
+    font-family: var(--font-display);
+    font-size: 18px;
+    letter-spacing: 0.3px;
+    line-height: 1.05;
+    margin: 0 0 6px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-wrap: balance;
+  }
+
+  .tile-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: rgba(245,245,247,0.75);
+  }
+  .tile-meta svg { width: 12px; height: 12px; flex-shrink: 0; opacity: 0.85; }
+  .tile-meta .dot { opacity: 0.5; }
+  .tile-meta + .tile-meta { margin-top: 4px; }
+  .tile-meta.release-line { color: var(--gold); font-weight: 600; }
+
+  .tile-source {
+    position: absolute;
+    top: 9px;
+    left: 9px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--source-color, var(--surface-2));
+    color: var(--source-text, #fff);
+  }
+
+  .tile-soon {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--gold);
+    color: var(--gold-ink);
+  }
+
+  .tile.add-tile {
+    background: transparent;
+    border: 1.5px dashed var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--text-faint);
+  }
+  .tile.add-tile::before { content: none; }
+  .tile.add-tile:hover { border-color: var(--accent); color: var(--text); background: rgba(225,29,51,0.06); }
+  .tile.add-tile svg { width: 26px; height: 26px; }
+  .tile.add-tile span { font-size: 12.5px; font-weight: 600; }
+
+  /* ---------- empty / loading states ---------- */
+
+  .row-empty {
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    padding: 22px;
+    color: var(--text-faint);
+    font-size: 13.5px;
+  }
+
+  /* ---------- modal ---------- */
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.68);
+    backdrop-filter: blur(3px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 10;
+  }
+  .modal-backdrop[hidden] { display: none; }
+
+  .modal {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 26px 26px 22px;
+    width: 100%;
+    max-width: 440px;
+    max-height: 88vh;
+    overflow-y: auto;
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.7);
+  }
+  .modal:focus { outline: none; }
+
+  .modal h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 26px;
+    letter-spacing: 0.3px;
+    margin: 0 0 4px;
+  }
+  .modal .sub {
+    font-size: 13px;
+    color: var(--text-faint);
+    margin: 0 0 20px;
+  }
+
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .field .hint { font-weight: 400; color: var(--text-faint); }
+
+  .field input[type="text"], .field select, .field textarea {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 14px;
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+  }
+  .field textarea { resize: vertical; min-height: 64px; }
+  .field select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23b7b7bd' stroke-width='2'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 18px;
+    padding-right: 34px;
+  }
+
+  .radio-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .radio-option { flex: 1; min-width: 130px; position: relative; }
+  .radio-option input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .radio-option label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    margin: 0;
+  }
+  .radio-option input:checked + label {
+    border-color: var(--accent);
+    background: rgba(225,29,51,0.12);
+    color: var(--text);
+  }
+  .radio-option svg { width: 16px; height: 16px; opacity: 0.85; flex-shrink: 0; }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+  }
+  .toggle-row label { font-size: 13px; font-weight: 600; color: var(--text-dim); margin: 0; flex: 1; cursor: pointer; }
+  .switch { position: relative; width: 38px; height: 22px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .switch .track {
+    position: absolute; inset: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    transition: background 0.15s ease;
+  }
+  .switch .track::after {
+    content: '';
+    position: absolute;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: var(--text-faint);
+    top: 2px; left: 2px;
+    transition: transform 0.15s ease, background 0.15s ease;
+  }
+  .switch input:checked + .track { background: rgba(225,29,51,0.4); border-color: var(--accent); }
+  .switch input:checked + .track::after { transform: translateX(16px); background: var(--accent-hover); }
+
+  .modal-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+    min-height: 38px;
+  }
+  .left-actions { display: flex; align-items: center; }
+  .right-actions { display: flex; gap: 10px; margin-left: auto; }
+
+  .link-danger {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 8px 4px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .link-danger:hover { color: var(--accent-hover); }
+
+  .confirm-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+  }
+  .confirm-inline button {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 12px;
+    border-radius: 999px;
+    padding: 6px 11px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .confirm-inline .confirm-yes { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .btn-secondary {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-dim);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 18px;
+    cursor: pointer;
+  }
+  .btn-primary {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--accent-ink);
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    cursor: pointer;
+  }
+  .btn-primary:hover { background: var(--accent-hover); }
+  .btn-primary:disabled { opacity: 0.6; cursor: default; }
+
+  .form-error {
+    font-size: 12.5px;
+    color: var(--accent-hover);
+    margin: -8px 0 14px;
+    min-height: 1em;
+  }
+
+  @media (max-width: 480px) {
+    body { padding: 22px 14px 80px; }
+    .tile { flex-basis: 128px; }
+    header { flex-direction: column; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="title-block">
+      <h1>What We're <span>Watching</span></h1>
+      <p>Everything queued up for movie nights &mdash; new episodes, half-finished series, and the ones still waiting to land.</p>
+    </div>
+    <button class="add-btn" id="openAdd" type="button" disabled>
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M10 4v12M4 10h12"/></svg>
+      Add a show
+    </button>
+  </header>
+
+  <div class="stat-line" id="statLine">Loading your list&hellip;</div>
+
+  <div class="row ready" id="rowReady" hidden>
+    <div class="row-title"><h2>On The List</h2><span class="count" id="readyCount"></span></div>
+    <div class="row-scroll" id="readyScroll"></div>
+  </div>
+
+  <div class="row coming" id="rowComing" hidden>
+    <div class="row-title"><h2>Coming Soon</h2><span class="count" id="comingCount"></span></div>
+    <div class="row-scroll" id="comingScroll"></div>
+  </div>
+
+</div>
+
+<!-- Add / edit show modal -->
+<div class="modal-backdrop" id="modalBackdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" tabindex="-1">
+    <h2 id="modalTitle">Add a show</h2>
+    <p class="sub" id="modalSub">Just the basics &mdash; you can always come back and tidy it up.</p>
+    <form id="showForm">
+      <div class="field">
+        <label for="f-name">Show name</label>
+        <input type="text" id="f-name" placeholder="e.g. Stranger Things" required>
+      </div>
+
+      <div class="field">
+        <label for="f-source">Where it's on</label>
+        <select id="f-source">
+          <option value="Netflix">Netflix</option>
+          <option value="ITV / ITVX">ITV / ITVX</option>
+          <option value="BBC iPlayer">BBC iPlayer</option>
+          <option value="Channel 4">Channel 4</option>
+          <option value="Channel 5">Channel 5</option>
+          <option value="Disney+">Disney+</option>
+          <option value="Prime Video">Prime Video</option>
+          <option value="Apple TV+">Apple TV+</option>
+          <option value="Sky / NOW">Sky / NOW</option>
+          <option value="TNT Sports">TNT Sports</option>
+          <option value="other">Something else&hellip;</option>
+        </select>
+      </div>
+
+      <div class="field" id="customSourceField" hidden>
+        <label for="f-source-custom">Source name</label>
+        <input type="text" id="f-source-custom" placeholder="e.g. Paramount+">
+      </div>
+
+      <div class="field">
+        <label for="f-season">Season <span class="hint">(optional)</span></label>
+        <input type="text" id="f-season" placeholder="e.g. Season 2">
+      </div>
+
+      <div class="field">
+        <label for="f-episode">Episode <span class="hint">(optional)</span></label>
+        <input type="text" id="f-episode" placeholder="e.g. Ep 4 of 8">
+      </div>
+
+      <div class="field">
+        <label>Who's watching</label>
+        <div class="radio-row">
+          <div class="radio-option">
+            <input type="radio" name="watchers" id="w-me" value="Just Me" checked>
+            <label for="w-me">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="7" r="3.2"/><path d="M4 17c0-3 2.7-5 6-5s6 2 6 5"/></svg>
+              Just Me
+            </label>
+          </div>
+          <div class="radio-option">
+            <input type="radio" name="watchers" id="w-us" value="Me & Emma">
+            <label for="w-us">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6.5" cy="7" r="2.6"/><circle cx="13.5" cy="7" r="2.6"/><path d="M2 17c0-2.6 2-4.3 4.5-4.3S11 14.4 11 17M9 17c0-2.6 2-4.3 4.5-4.3S18 14.4 18 17"/></svg>
+              Me &amp; Emma
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="toggle-row">
+          <label for="f-soon">Not out yet &mdash; mark as coming soon</label>
+          <span class="switch">
+            <input type="checkbox" id="f-soon">
+            <span class="track"></span>
+          </span>
+        </div>
+      </div>
+
+      <div class="field" id="releaseField" hidden>
+        <label for="f-release">Expected release <span class="hint">(optional)</span></label>
+        <input type="text" id="f-release" placeholder="e.g. March 2027, or “TBC”">
+      </div>
+
+      <div class="field" style="margin-bottom: 6px;">
+        <label for="f-notes">Notes <span class="hint">(optional)</span></label>
+        <textarea id="f-notes" placeholder="Where you left off, why it's on the list, who recommended it&hellip;"></textarea>
+      </div>
+
+      <p class="form-error" id="formError"></p>
+
+      <div class="modal-actions">
+        <div class="left-actions" id="modalLeftActions"></div>
+        <div class="right-actions">
+          <button type="button" class="btn-secondary" id="cancelAdd">Cancel</button>
+          <button type="submit" class="btn-primary" id="submitBtn">Add to list</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script type="module">
+  import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    getFirestore, collection, doc, addDoc, updateDoc, deleteDoc,
+    onSnapshot, query, orderBy, serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // Same project auth-guard.js already signs you into — reuse its app
+  // instance if it's already initialised rather than creating a second one.
+  var firebaseConfig = {
+    apiKey: "AIzaSyAYf97LVA839hP-jUpbwQJ7JgftMvdwKLQ",
+    authDomain: "rwapps1-hub.firebaseapp.com",
+    projectId: "rwapps1-hub",
+    storageBucket: "rwapps1-hub.firebasestorage.app",
+    messagingSenderId: "605178772138",
+    appId: "1:605178772138:web:0508b89695ce7588936ed3"
+  };
+  var app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+  var auth = getAuth(app);
+  var db = getFirestore(app);
+  var showsCol = collection(db, "watchlist");
+
+  var SOURCE_STYLES = {
+    "Netflix":        { bg: "#e11d33", text: "#ffffff" },
+    "ITV / ITVX":     { bg: "#ff5aa1", text: "#2a0817" },
+    "BBC iPlayer":    { bg: "#f0eef2", text: "#111114" },
+    "Channel 4":      { bg: "#5ec8bd", text: "#062622" },
+    "Channel 5":      { bg: "#c2338c", text: "#ffffff" },
+    "Disney+":        { bg: "#2447e0", text: "#ffffff" },
+    "Prime Video":    { bg: "#39c6f2", text: "#04222c" },
+    "Apple TV+":      { bg: "#55505f", text: "#ffffff" },
+    "Sky / NOW":      { bg: "#20d19a", text: "#04241a" },
+    "TNT Sports":     { bg: "#f5730c", text: "#1a0d00" }
+  };
+  var DEFAULT_SOURCE_STYLE = { bg: "#57565c", text: "#ffffff" };
+
+  var ICON_ONE = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="7" r="3.2"/><path d="M4 17c0-3 2.7-5 6-5s6 2 6 5"/></svg>';
+  var ICON_TWO = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6.5" cy="7" r="2.6"/><circle cx="13.5" cy="7" r="2.6"/><path d="M2 17c0-2.6 2-4.3 4.5-4.3S11 14.4 11 17M9 17c0-2.6 2-4.3 4.5-4.3S18 14.4 18 17"/></svg>';
+
+  var state = {
+    shows: [],
+    ready: false,
+    editingId: null,
+    confirmingDelete: false,
+    saving: false
+  };
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function sourceStyle(source) { return SOURCE_STYLES[source] || DEFAULT_SOURCE_STYLE; }
+
+  function render() {
+    var addBtn = document.getElementById("openAdd");
+    addBtn.disabled = !state.ready;
+
+    if (!state.ready) {
+      document.getElementById("statLine").textContent = "Loading your list…";
+      return;
+    }
+
+    var comingShows = state.shows.filter(function (s) { return s.comingSoon; });
+    var readyShows = state.shows.filter(function (s) { return !s.comingSoon; });
+
+    document.getElementById("statLine").innerHTML =
+      "<strong>" + state.shows.length + "</strong> show" + (state.shows.length === 1 ? "" : "s") + " on the list";
+
+    var rowComing = document.getElementById("rowComing");
+    var rowReady = document.getElementById("rowReady");
+    rowReady.hidden = false;
+    rowComing.hidden = comingShows.length === 0;
+
+    document.getElementById("comingCount").textContent = comingShows.length ? comingShows.length : "";
+    document.getElementById("comingScroll").innerHTML = comingShows.map(tileHtml).join("");
+
+    document.getElementById("readyCount").textContent = readyShows.length ? readyShows.length : "";
+    var readyHtml = readyShows.map(tileHtml).join("") + addTileHtml();
+    document.getElementById("readyScroll").innerHTML = readyShows.length
+      ? readyHtml
+      : '<div class="row-empty">Nothing on the list yet &mdash; add a show to get started.</div>' + addTileHtml();
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-tile]"), function (el) {
+      el.addEventListener("click", function () { openModal(el.getAttribute("data-tile")); });
+    });
+    var addTileEl = document.getElementById("addTile");
+    if (addTileEl) addTileEl.addEventListener("click", function () { openModal(null); });
+  }
+
+  function addTileHtml() {
+    return (
+      '<button type="button" class="tile add-tile" id="addTile">' +
+        '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 4v12M4 10h12"/></svg>' +
+        '<span>Add a show</span>' +
+      '</button>'
+    );
+  }
+
+  function tileHtml(show) {
+    var style = sourceStyle(show.source);
+    var watcherIcon = show.watchers === "Just Me" ? ICON_ONE : ICON_TWO;
+    var initial = (show.name || "").trim().charAt(0).toUpperCase() || "?";
+
+    var topLine = "";
+    if (show.comingSoon) {
+      if (show.releaseDate) {
+        topLine = '<span class="tile-meta release-line">Expected ' + escapeHtml(show.releaseDate) + '</span>';
+      }
+    } else {
+      var parts = [];
+      if (show.season) parts.push(escapeHtml(show.season));
+      if (show.episode) parts.push(escapeHtml(show.episode));
+      if (parts.length) topLine = '<span class="tile-meta">' + parts.join('<span class="dot">&middot;</span>') + '</span>';
+    }
+
+    return (
+      '<button type="button" class="tile" data-tile="' + show.id + '" data-initial="' + escapeHtml(initial) + '" ' +
+        'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';" ' +
+        'aria-label="' + escapeHtml(show.name) + ', tap to edit">' +
+        '<span class="tile-source">' + escapeHtml(show.source) + '</span>' +
+        (show.comingSoon ? '<span class="tile-soon">Soon</span>' : '') +
+        '<span class="tile-scrim">' +
+          '<span class="tile-name">' + escapeHtml(show.name) + '</span>' +
+          topLine +
+          '<span class="tile-meta">' + watcherIcon + escapeHtml(show.watchers) + '</span>' +
+        '</span>' +
+      '</button>'
+    );
+  }
+
+  // ---------- modal ----------
+  var backdrop = document.getElementById("modalBackdrop");
+  var modal = document.querySelector(".modal");
+  var form = document.getElementById("showForm");
+  var sourceSelect = document.getElementById("f-source");
+  var customSourceField = document.getElementById("customSourceField");
+  var releaseField = document.getElementById("releaseField");
+  var soonToggle = document.getElementById("f-soon");
+  var modalTitle = document.getElementById("modalTitle");
+  var modalSub = document.getElementById("modalSub");
+  var submitBtn = document.getElementById("submitBtn");
+  var leftActions = document.getElementById("modalLeftActions");
+  var formError = document.getElementById("formError");
+
+  function openModal(id) {
+    state.editingId = id;
+    state.confirmingDelete = false;
+    form.reset();
+    customSourceField.hidden = true;
+    releaseField.hidden = true;
+    formError.textContent = "";
+
+    if (id) {
+      var show = state.shows.filter(function (s) { return s.id === id; })[0];
+      if (!show) return;
+      modalTitle.textContent = "Edit show";
+      modalSub.textContent = "Update the details or mark it as watched below.";
+      submitBtn.textContent = "Save changes";
+
+      document.getElementById("f-name").value = show.name;
+      if (SOURCE_STYLES[show.source]) {
+        sourceSelect.value = show.source;
+      } else {
+        sourceSelect.value = "other";
+        customSourceField.hidden = false;
+        document.getElementById("f-source-custom").value = show.source;
+      }
+      document.getElementById("f-season").value = show.season || "";
+      document.getElementById("f-episode").value = show.episode || "";
+      document.getElementById(show.watchers === "Just Me" ? "w-me" : "w-us").checked = true;
+      soonToggle.checked = !!show.comingSoon;
+      releaseField.hidden = !show.comingSoon;
+      document.getElementById("f-release").value = show.releaseDate || "";
+      document.getElementById("f-notes").value = show.notes || "";
+    } else {
+      modalTitle.textContent = "Add a show";
+      modalSub.textContent = "Just the basics — you can always come back and tidy it up.";
+      submitBtn.textContent = "Add to list";
+    }
+
+    renderLeftActions();
+    backdrop.hidden = false;
+
+    // Adding: jump straight into typing. Editing: land focus on the modal
+    // itself so the keyboard doesn't pop up before you've tapped a field.
+    if (id) {
+      modal.focus();
+    } else {
+      document.getElementById("f-name").focus();
+    }
+  }
+
+  function closeModal() {
+    backdrop.hidden = true;
+    state.editingId = null;
+    state.confirmingDelete = false;
+    form.reset();
+    customSourceField.hidden = true;
+    releaseField.hidden = true;
+    formError.textContent = "";
+  }
+
+  function renderLeftActions() {
+    if (!state.editingId) { leftActions.innerHTML = ""; return; }
+
+    if (state.confirmingDelete) {
+      leftActions.innerHTML =
+        '<span class="confirm-inline">Remove this?' +
+          '<button type="button" id="cancelDelete">Keep it</button>' +
+          '<button type="button" class="confirm-yes" id="confirmDelete">Watched it</button>' +
+        '</span>';
+      document.getElementById("cancelDelete").addEventListener("click", function () {
+        state.confirmingDelete = false;
+        renderLeftActions();
+      });
+      document.getElementById("confirmDelete").addEventListener("click", function () {
+        var id = state.editingId;
+        closeModal();
+        deleteDoc(doc(db, "watchlist", id)).catch(function (err) {
+          console.error(err);
+          alertInline("Couldn't remove that — try again in a moment.");
+        });
+      });
+    } else {
+      leftActions.innerHTML = '<button type="button" class="link-danger" id="deleteLink">Remove from list</button>';
+      document.getElementById("deleteLink").addEventListener("click", function () {
+        state.confirmingDelete = true;
+        renderLeftActions();
+      });
+    }
+  }
+
+  function alertInline(msg) {
+    // Lightweight, non-blocking stand-in for a toast: shows briefly in the
+    // stat line rather than using a native alert() dialog.
+    var el = document.getElementById("statLine");
+    var prev = el.textContent;
+    el.textContent = msg;
+    setTimeout(function () { render(); }, 3000);
+  }
+
+  document.getElementById("openAdd").addEventListener("click", function () { openModal(null); });
+  document.getElementById("cancelAdd").addEventListener("click", closeModal);
+  backdrop.addEventListener("click", function (e) { if (e.target === backdrop) closeModal(); });
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !backdrop.hidden) closeModal(); });
+
+  sourceSelect.addEventListener("change", function () {
+    customSourceField.hidden = sourceSelect.value !== "other";
+    if (sourceSelect.value === "other") document.getElementById("f-source-custom").focus();
+  });
+
+  soonToggle.addEventListener("change", function () {
+    releaseField.hidden = !soonToggle.checked;
+    if (soonToggle.checked) document.getElementById("f-release").focus();
+  });
+
+  form.addEventListener("submit", function (e) {
+    e.preventDefault();
+    if (state.saving) return;
+
+    var name = document.getElementById("f-name").value.trim();
+    if (!name) return;
+
+    var source = sourceSelect.value === "other"
+      ? (document.getElementById("f-source-custom").value.trim() || "Other")
+      : sourceSelect.value;
+    var watchers = document.querySelector('input[name="watchers"]:checked').value;
+    var comingSoon = soonToggle.checked;
+
+    var data = {
+      name: name,
+      source: source,
+      season: document.getElementById("f-season").value.trim(),
+      episode: document.getElementById("f-episode").value.trim(),
+      watchers: watchers,
+      comingSoon: comingSoon,
+      releaseDate: comingSoon ? document.getElementById("f-release").value.trim() : "",
+      notes: document.getElementById("f-notes").value.trim()
+    };
+
+    state.saving = true;
+    formError.textContent = "";
+    submitBtn.disabled = true;
+
+    var savePromise;
+    if (state.editingId) {
+      savePromise = updateDoc(doc(db, "watchlist", state.editingId), data);
+    } else {
+      data.createdAt = serverTimestamp();
+      savePromise = addDoc(showsCol, data);
+    }
+
+    savePromise
+      .then(function () {
+        state.saving = false;
+        submitBtn.disabled = false;
+        closeModal();
+      })
+      .catch(function (err) {
+        console.error(err);
+        state.saving = false;
+        submitBtn.disabled = false;
+        formError.textContent = "Couldn't save — check your connection and try again.";
+      });
+  });
+
+  // ---------- auth + live data ----------
+  // auth-guard.js handles the sign-in screen itself; once it reports a
+  // signed-in user, subscribe to the live Firestore list.
+  var unsubscribeShows = null;
+
+  onAuthStateChanged(auth, function (user) {
+    if (user && !unsubscribeShows) {
+      var q = query(showsCol, orderBy("createdAt", "desc"));
+      unsubscribeShows = onSnapshot(q, function (snapshot) {
+        state.shows = snapshot.docs.map(function (d) {
+          return Object.assign({ id: d.id }, d.data());
+        });
+        state.ready = true;
+        render();
+      }, function (err) {
+        console.error(err);
+        document.getElementById("statLine").textContent = "Couldn't load your list — check your connection.";
+      });
+    } else if (!user && unsubscribeShows) {
+      unsubscribeShows();
+      unsubscribeShows = null;
+      state.shows = [];
+      state.ready = false;
+      render();
+    }
+  });
+
+  render();
+</script>
+
+<!--
+  ----------------------------------------------------------------
+  Setup checklist (Firebase console, one-time):
+
+  1. Firestore Database must be enabled on the rwapps1-hub project
+     (Build > Firestore Database > Create database, if not already
+     on from another tool).
+
+  2. Add a security rule so only your signed-in account can read or
+     write the list. Firestore > Rules:
+
+       rules_version = '2';
+       service cloud.firestore {
+         match /databases/{database}/documents {
+           match /watchlist/{showId} {
+             allow read, write: if request.auth != null;
+           }
+         }
+       }
+
+  That's it — no other repo needs touching. If your hub page lists
+  tools automatically, this one should appear there on its own next
+  time it refreshes; otherwise add a link to watchlist.html same as
+  your other pages.
+  ----------------------------------------------------------------
+-->
