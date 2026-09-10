@@ -78,39 +78,53 @@
   }
   .title-block h1 span { color: var(--accent); }
 
-  .title-block p {
-    margin: 0;
-    color: var(--text-faint);
-    font-size: 14px;
-    max-width: 48ch;
-    line-height: 1.5;
-  }
-
-  .add-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: var(--accent);
-    color: var(--accent-ink);
-    border: none;
-    font-family: var(--font-body);
-    font-weight: 700;
-    font-size: 14px;
-    padding: 11px 18px;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: background 0.15s ease, transform 0.15s ease;
-  }
-  .add-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
-  .add-btn:active { transform: translateY(0); }
-  .add-btn svg { width: 17px; height: 17px; }
-  .add-btn:disabled { opacity: 0.5; cursor: default; transform: none; }
-
   button:focus-visible, select:focus-visible, input:focus-visible,
   textarea:focus-visible, .tile:focus-visible {
     outline: 2px solid var(--accent-hover);
     outline-offset: 2px;
   }
+
+  /* ---------- filter pills ---------- */
+
+  .filters-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin: 14px 0 20px;
+  }
+
+  .filter-group {
+    display: inline-flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px;
+    gap: 2px;
+  }
+
+  .filter-pill {
+    border: none;
+    background: transparent;
+    color: var(--text-faint);
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 12.5px;
+    padding: 7px 13px;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .filter-group .filter-pill:hover { color: var(--text); }
+  .filter-group .filter-pill.active { background: var(--surface-2); color: var(--text); }
+
+  .toggle-pill {
+    border: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .toggle-pill:hover { color: var(--text); }
+  .toggle-pill.active { border-color: var(--accent); background: rgba(225,29,51,0.14); color: var(--text); }
 
   /* ---------- stat line ---------- */
 
@@ -180,15 +194,15 @@
 
   .tile {
     position: relative;
-    flex: 0 0 156px;
-    aspect-ratio: 2 / 3;
+    flex: 0 0 132px;
+    aspect-ratio: 1 / 1;
     border-radius: var(--radius-md);
     overflow: hidden;
     cursor: pointer;
     border: 1px solid var(--border);
     padding: 0;
     scroll-snap-align: start;
-    background: linear-gradient(150deg, var(--source-color, #3a3a3e) 0%, #0c0c0d 78%);
+    background: linear-gradient(150deg, var(--source-color, #3a3a3e) 0%, #0c0c0d 82%);
     transition: transform 0.18s ease, box-shadow 0.18s ease, z-index 0s;
     text-align: left;
     font-family: var(--font-body);
@@ -200,32 +214,19 @@
     box-shadow: 0 20px 44px -14px rgba(0,0,0,0.75);
   }
 
-  .tile::before {
-    content: attr(data-initial);
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -58%);
-    font-family: var(--font-display);
-    font-size: 96px;
-    color: rgba(255,255,255,0.14);
-    line-height: 1;
-    pointer-events: none;
-  }
-
   .tile-scrim {
     position: absolute;
     left: 0; right: 0; bottom: 0;
-    padding: 12px 10px 10px;
-    background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.55) 40%, rgba(0,0,0,0.92) 100%);
+    padding: 10px 9px 8px;
+    background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.6) 35%, rgba(0,0,0,0.92) 100%);
   }
 
   .tile-name {
     font-family: var(--font-display);
-    font-size: 18px;
+    font-size: 16px;
     letter-spacing: 0.3px;
     line-height: 1.05;
-    margin: 0 0 6px;
+    margin: 0 0 5px;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
@@ -283,7 +284,6 @@
     gap: 8px;
     color: var(--text-faint);
   }
-  .tile.add-tile::before { content: none; }
   .tile.add-tile:hover { border-color: var(--accent); color: var(--text); background: rgba(225,29,51,0.06); }
   .tile.add-tile svg { width: 26px; height: 26px; }
   .tile.add-tile span { font-size: 12.5px; font-weight: 600; }
@@ -403,7 +403,7 @@
     border-radius: var(--radius-sm);
     padding: 10px 12px;
   }
-  .toggle-row label { font-size: 13px; font-weight: 600; color: var(--text-dim); margin: 0; flex: 1; cursor: pointer; }
+  .toggle-row .toggle-label { font-size: 13px; font-weight: 600; color: var(--text-dim); margin: 0; flex: 1; cursor: pointer; }
   .switch { position: relative; width: 38px; height: 22px; flex-shrink: 0; }
   .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
   .switch .track {
@@ -515,8 +515,6 @@
 
   @media (max-width: 480px) {
     body { padding: 22px 14px 80px; }
-    header { flex-direction: column; }
-    .add-btn { justify-content: center; }
     .tile { flex: 1 1 calc(50% - 6px); max-width: calc(50% - 6px); }
     .row-scroll { gap: 12px; }
   }
@@ -527,13 +525,17 @@
   <header>
     <div class="title-block">
       <h1>What We're <span>Watching</span></h1>
-      <p>Everything queued up for movie nights &mdash; new episodes, half-finished series, and the ones still waiting to land.</p>
     </div>
-    <button class="add-btn" id="openAdd" type="button" disabled>
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M10 4v12M4 10h12"/></svg>
-      Add a show
-    </button>
   </header>
+
+  <div class="filters-row">
+    <div class="filter-group" role="group" aria-label="Who's watching">
+      <button class="filter-pill active" data-who="all" type="button">Everyone</button>
+      <button class="filter-pill" data-who="Just Me" type="button">Just Me</button>
+      <button class="filter-pill" data-who="Me &amp; Emma" type="button">Me &amp; Emma</button>
+    </div>
+    <button class="filter-pill toggle-pill active" id="toggleComingSoon" type="button" aria-pressed="true">Coming soon</button>
+  </div>
 
   <div class="stat-line" id="statLine">Loading your list&hellip;</div>
 
@@ -614,11 +616,11 @@
 
       <div class="field">
         <div class="toggle-row">
-          <label for="f-soon">Not out yet &mdash; mark as coming soon</label>
-          <span class="switch">
+          <label class="toggle-label" for="f-soon">Not out yet &mdash; mark as coming soon</label>
+          <label class="switch" for="f-soon">
             <input type="checkbox" id="f-soon">
             <span class="track"></span>
-          </span>
+          </label>
         </div>
       </div>
 
@@ -690,7 +692,9 @@
     ready: false,
     editingId: null,
     confirmingDelete: false,
-    saving: false
+    saving: false,
+    filterWho: "all",
+    showComingSoon: true
   };
 
   function escapeHtml(str) {
@@ -702,19 +706,21 @@
   function sourceStyle(source) { return SOURCE_STYLES[source] || DEFAULT_SOURCE_STYLE; }
 
   function render() {
-    var addBtn = document.getElementById("openAdd");
-    addBtn.disabled = !state.ready;
-
     if (!state.ready) {
       document.getElementById("statLine").textContent = "Loading your list…";
       return;
     }
 
-    var comingShows = state.shows.filter(function (s) { return s.comingSoon; });
-    var readyShows = state.shows.filter(function (s) { return !s.comingSoon; });
+    var visible = state.filterWho === "all"
+      ? state.shows
+      : state.shows.filter(function (s) { return s.watchers === state.filterWho; });
+
+    var comingShows = state.showComingSoon ? visible.filter(function (s) { return s.comingSoon; }) : [];
+    var readyShows = visible.filter(function (s) { return !s.comingSoon; });
 
     document.getElementById("statLine").innerHTML =
-      "<strong>" + state.shows.length + "</strong> show" + (state.shows.length === 1 ? "" : "s") + " on the list";
+      "<strong>" + visible.length + "</strong> show" + (visible.length === 1 ? "" : "s") +
+      (state.filterWho === "all" ? "" : " for " + escapeHtml(state.filterWho));
 
     var rowComing = document.getElementById("rowComing");
     var rowReady = document.getElementById("rowReady");
@@ -726,9 +732,12 @@
 
     document.getElementById("readyCount").textContent = readyShows.length ? readyShows.length : "";
     var readyHtml = readyShows.map(tileHtml).join("") + addTileHtml();
+    var emptyMsg = state.shows.length === 0
+      ? "Nothing on the list yet &mdash; add a show to get started."
+      : "Nothing matches this filter.";
     document.getElementById("readyScroll").innerHTML = readyShows.length
       ? readyHtml
-      : '<div class="row-empty">Nothing on the list yet &mdash; add a show to get started.</div>' + addTileHtml();
+      : '<div class="row-empty">' + emptyMsg + '</div>' + addTileHtml();
 
     Array.prototype.forEach.call(document.querySelectorAll("[data-tile]"), function (el) {
       el.addEventListener("click", function () { openModal(el.getAttribute("data-tile")); });
@@ -749,7 +758,6 @@
   function tileHtml(show) {
     var style = sourceStyle(show.source);
     var watcherIcon = show.watchers === "Just Me" ? ICON_ONE : ICON_TWO;
-    var initial = (show.name || "").trim().charAt(0).toUpperCase() || "?";
 
     var topLine = "";
     if (show.comingSoon) {
@@ -764,7 +772,7 @@
     }
 
     return (
-      '<button type="button" class="tile" data-tile="' + show.id + '" data-initial="' + escapeHtml(initial) + '" ' +
+      '<button type="button" class="tile" data-tile="' + show.id + '" ' +
         'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';" ' +
         'aria-label="' + escapeHtml(show.name) + ', tap to edit">' +
         '<span class="tile-source">' + escapeHtml(show.source) + '</span>' +
@@ -889,10 +897,26 @@
     setTimeout(function () { render(); }, 3000);
   }
 
-  document.getElementById("openAdd").addEventListener("click", function () { openModal(null); });
   document.getElementById("cancelAdd").addEventListener("click", closeModal);
   backdrop.addEventListener("click", function (e) { if (e.target === backdrop) closeModal(); });
   document.addEventListener("keydown", function (e) { if (e.key === "Escape" && !backdrop.hidden) closeModal(); });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".filter-group [data-who]"), function (btn) {
+    btn.addEventListener("click", function () {
+      state.filterWho = btn.getAttribute("data-who");
+      Array.prototype.forEach.call(document.querySelectorAll(".filter-group [data-who]"), function (b) {
+        b.classList.toggle("active", b === btn);
+      });
+      render();
+    });
+  });
+
+  document.getElementById("toggleComingSoon").addEventListener("click", function () {
+    state.showComingSoon = !state.showComingSoon;
+    this.classList.toggle("active", state.showComingSoon);
+    this.setAttribute("aria-pressed", String(state.showComingSoon));
+    render();
+  });
 
   sourceSelect.addEventListener("change", function () {
     customSourceField.hidden = sourceSelect.value !== "other";
