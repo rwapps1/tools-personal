@@ -500,10 +500,23 @@
     min-height: 1em;
   }
 
+  /* On phones, let tiles wrap and fill the width edge-to-edge instead of
+     sitting in a horizontal strip with dead space next to it. */
+  @media (max-width: 640px) {
+    .row-scroll {
+      flex-wrap: wrap;
+      overflow-x: visible;
+      scroll-snap-type: none;
+    }
+    .tile { flex: 1 1 calc(50% - 7px); max-width: calc(50% - 7px); }
+  }
+
   @media (max-width: 480px) {
     body { padding: 22px 14px 80px; }
-    .tile { flex-basis: 128px; }
     header { flex-direction: column; }
+    .add-btn { justify-content: center; }
+    .tile { flex: 1 1 calc(50% - 6px); max-width: calc(50% - 6px); }
+    .row-scroll { gap: 12px; }
   }
 </style>
 
