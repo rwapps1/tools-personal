@@ -35,6 +35,8 @@
     --accent-ink: #ffffff;
     --gold: #e8b339;
     --gold-ink: #2a1d02;
+    --ufc: #d8d8e0;
+    --ok: #4ec98a;
     --radius-lg: 20px;
     --radius-md: 14px;
     --radius-sm: 9px;
@@ -182,6 +184,15 @@
     width: 9px;
     height: 9px;
     background: var(--accent);
+    border-radius: 2px;
+    margin-right: 9px;
+  }
+  .row.ufc .row-title h2::before {
+    content: '';
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    background: var(--ufc);
     border-radius: 2px;
     margin-right: 9px;
   }
@@ -532,6 +543,259 @@
     min-height: 1em;
   }
 
+  /* ---------- UFC tiles ---------- */
+
+  .ufc-tile { display: block; }
+
+  .tile-edit {
+    position: absolute;
+    top: 5px;
+    right: 5px;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    background: rgba(10,10,12,0.62);
+    color: rgba(245,245,247,0.9);
+    cursor: pointer;
+    z-index: 2;
+  }
+  .tile-edit:hover { background: var(--accent); color: #fff; }
+  .tile-edit svg { width: 14px; height: 14px; }
+
+  .ufc-tile .tile-name { -webkit-line-clamp: 2; margin-bottom: 3px; }
+  .ufc-tile .tile-scrim { padding: 8px 9px 7px; }
+  .ufc-tile .tile-meta.headline {
+    color: rgba(245,245,247,0.88);
+    font-weight: 600;
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ufc-foot { margin-top: 6px !important; gap: 5px; }
+  .ufc-foot svg { opacity: 0.75; }
+  .progress-track {
+    flex: 1;
+    height: 4px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.18);
+    overflow: hidden;
+    min-width: 20px;
+  }
+  .progress-track i { display: block; height: 100%; background: var(--accent-hover); border-radius: 999px; }
+  .ufc-foot .count-text { font-size: 10px; font-weight: 700; color: rgba(245,245,247,0.8); flex-shrink: 0; }
+  .ufc-foot .no-card { font-size: 10.5px; color: rgba(245,245,247,0.55); }
+
+  /* ---------- fight card ---------- */
+
+  .fight-modal { max-width: 560px; }
+
+  .fight-head { margin-bottom: 16px; }
+  .fight-head .sub { margin-bottom: 12px; }
+
+  .progress-line { display: flex; align-items: center; gap: 10px; }
+  .progress-line .progress-track { height: 6px; background: var(--surface-2); }
+  .progress-line .progress-text { font-size: 12px; font-weight: 600; color: var(--text-faint); flex-shrink: 0; }
+
+  .fight-section {
+    font-family: var(--font-display);
+    font-size: 15px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin: 18px 0 8px;
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--border);
+  }
+  .fight-section:first-child { margin-top: 0; }
+
+  .fight-row {
+    display: flex;
+    align-items: stretch;
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+
+  .fight-toggle {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    cursor: pointer;
+    font-family: var(--font-body);
+    color: var(--text);
+    min-height: 48px;
+    transition: border-color 0.15s ease, opacity 0.15s ease;
+  }
+  .fight-toggle:hover { border-color: var(--text-faint); }
+
+  .fight-check {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    border-radius: 5px;
+    border: 1.8px solid var(--text-faint);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .fight-check svg { width: 12px; height: 12px; opacity: 0; color: #fff; }
+
+  .fight-body { min-width: 0; flex: 1; }
+  .fight-weight {
+    display: block;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 2px;
+  }
+  .fight-names { display: block; font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+  .fight-names em { font-style: normal; color: var(--text-faint); font-weight: 500; padding: 0 3px; }
+  .fight-row.main .fight-names { font-size: 14.5px; }
+
+  .fight-row.watched .fight-toggle { opacity: 0.5; }
+  .fight-row.watched .fight-check { background: var(--ok); border-color: var(--ok); }
+  .fight-row.watched .fight-check svg { opacity: 1; }
+  .fight-row.watched .fight-names { text-decoration: line-through; text-decoration-thickness: 1.5px; }
+
+  .fight-remove {
+    flex-shrink: 0;
+    width: 34px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-faint);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+  }
+  .fight-remove:hover { color: var(--accent-hover); border-color: var(--border); background: var(--surface); }
+
+  .fight-empty {
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    padding: 20px;
+    color: var(--text-faint);
+    font-size: 13.5px;
+    text-align: center;
+  }
+
+  /* ---------- card import panel ---------- */
+
+  .import-panel {
+    margin-top: 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 15px;
+    background: var(--surface);
+  }
+  .import-panel h3 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 17px;
+    letter-spacing: 0.4px;
+    margin: 0 0 4px;
+  }
+  .import-panel .sub { font-size: 12.5px; color: var(--text-faint); margin: 0 0 12px; }
+  .import-panel .field { margin-bottom: 12px; }
+  .import-panel .field:last-of-type { margin-bottom: 0; }
+
+  .search-line { display: flex; gap: 8px; }
+  .search-line input { flex: 1; }
+  .search-line button { flex-shrink: 0; padding: 10px 14px; }
+
+  .wiki-results { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .wiki-result {
+    text-align: left;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .wiki-result:hover { border-color: var(--accent); background: rgba(225,29,51,0.08); }
+
+  .import-status { font-size: 12.5px; color: var(--text-faint); margin: 10px 0 0; min-height: 1em; }
+  .import-status.error { color: var(--accent-hover); }
+  .import-status.ok { color: var(--ok); }
+
+  .import-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 14px 0;
+    color: var(--text-faint);
+    font-size: 11.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .import-divider::before, .import-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .fight-actions { flex-wrap: wrap; margin-top: 18px; }
+  .fight-actions .right-actions { flex-wrap: wrap; }
+
+  .btn-small {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--text-dim);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 13px;
+    cursor: pointer;
+  }
+  .btn-small:hover { color: var(--text); border-color: var(--text-faint); }
+  .btn-small:disabled { opacity: 0.5; cursor: default; }
+
+  /* ---------- type switch ---------- */
+
+  .type-switch {
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 4px;
+  }
+  .type-btn {
+    flex: 1;
+    border: none;
+    background: transparent;
+    color: var(--text-faint);
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 13px;
+    padding: 9px 10px;
+    border-radius: 7px;
+    cursor: pointer;
+  }
+  .type-btn.active { background: var(--accent); color: #fff; }
+
   /* On phones, let tiles wrap and fill the width edge-to-edge instead of
      sitting in a horizontal strip with dead space next to it. */
   @media (max-width: 640px) {
@@ -547,6 +811,10 @@
     body { padding: 22px 14px 80px; }
     .tile { flex: 1 1 calc(50% - 6px); max-width: calc(50% - 6px); }
     .row-scroll { gap: 12px; }
+    .modal-backdrop { padding: 10px; }
+    .fight-modal { padding: 20px 16px 18px; max-height: 94vh; }
+    .fight-actions .right-actions { width: 100%; }
+    .fight-actions .right-actions .btn-primary { flex: 1; }
   }
 </style>
 
@@ -565,9 +833,15 @@
       <button class="filter-pill" data-who="Me &amp; Emma" type="button">Me &amp; Emma</button>
     </div>
     <button class="filter-pill toggle-pill active" id="toggleComingSoon" type="button" aria-pressed="true">Soon</button>
+    <button class="filter-pill toggle-pill active" id="toggleUfc" type="button" aria-pressed="true">UFC</button>
   </div>
 
   <div class="stat-line" id="statLine">Loading your list&hellip;</div>
+
+  <div class="row ufc" id="rowUfc" hidden>
+    <div class="row-title"><h2>Fight Nights</h2><span class="count" id="ufcCount"></span></div>
+    <div class="row-scroll" id="ufcScroll"></div>
+  </div>
 
   <div class="row ready" id="rowReady" hidden>
     <div class="row-title"><h2>On The List</h2><span class="count" id="readyCount"></span></div>
@@ -588,7 +862,14 @@
     <p class="sub" id="modalSub">Just the basics &mdash; you can always come back and tidy it up.</p>
     <form id="showForm">
       <div class="field">
-        <label for="f-name">Show name</label>
+        <div class="type-switch" role="group" aria-label="What is this?">
+          <button type="button" class="type-btn active" data-type="show">TV Show</button>
+          <button type="button" class="type-btn" data-type="ufc">UFC Event</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="f-name" id="nameLabel">Show name</label>
         <input type="text" id="f-name" placeholder="e.g. Stranger Things" required>
       </div>
 
@@ -623,12 +904,12 @@
         </div>
       </div>
 
-      <div class="field">
+      <div class="field show-only" id="seasonField">
         <label for="f-season">Season <span class="hint">(optional)</span></label>
         <input type="text" id="f-season" placeholder="e.g. Season 2">
       </div>
 
-      <div class="field">
+      <div class="field show-only" id="episodeField">
         <label for="f-episode">Episode <span class="hint">(optional)</span></label>
         <input type="text" id="f-episode" placeholder="e.g. Ep 4 of 8">
       </div>
@@ -653,7 +934,7 @@
         </div>
       </div>
 
-      <div class="field">
+      <div class="field show-only" id="soonField">
         <div class="toggle-row">
           <label class="toggle-label" for="f-soon">Not out yet &mdash; mark as coming soon</label>
           <label class="switch" for="f-soon">
@@ -664,7 +945,7 @@
       </div>
 
       <div class="field" id="releaseField" hidden>
-        <label for="f-release">Expected release <span class="hint">(optional)</span></label>
+        <label for="f-release" id="releaseLabel">Expected release <span class="hint">(optional)</span></label>
         <input type="text" id="f-release" placeholder="e.g. March 2027, or “TBC”">
       </div>
 
@@ -683,6 +964,54 @@
         </div>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Fight card -->
+<div class="modal-backdrop" id="cardBackdrop" hidden>
+  <div class="modal fight-modal" role="dialog" aria-modal="true" aria-labelledby="cardTitle" tabindex="-1">
+    <div class="fight-head">
+      <h2 id="cardTitle">Fight card</h2>
+      <p class="sub" id="cardSub"></p>
+      <div class="progress-line">
+        <span class="progress-track"><i id="cardProgressFill" style="width:0%"></i></span>
+        <span class="progress-text" id="cardProgressText"></span>
+      </div>
+    </div>
+
+    <div id="fightList"></div>
+
+    <div class="import-panel" id="importPanel" hidden>
+      <h3>Build the card</h3>
+      <p class="sub">Search Wikipedia for the event, or paste the card in yourself. Results are never imported &mdash; only the matchups.</p>
+
+      <div class="field">
+        <div class="search-line">
+          <input type="text" id="wikiQuery" placeholder="e.g. UFC 320">
+          <button type="button" class="btn-small" id="wikiSearchBtn">Search</button>
+        </div>
+        <div class="wiki-results" id="wikiResults"></div>
+      </div>
+
+      <div class="import-divider">or</div>
+
+      <div class="field">
+        <label for="pasteBox">Paste or type the fights <span class="hint">(one per line)</span></label>
+        <textarea id="pasteBox" rows="4" placeholder="Fighter A vs Fighter B&#10;Fighter C vs Fighter D"></textarea>
+      </div>
+      <button type="button" class="btn-small" id="pasteImportBtn">Add these fights</button>
+
+      <p class="import-status" id="importStatus"></p>
+    </div>
+
+    <div class="modal-actions fight-actions">
+      <div class="left-actions">
+        <button type="button" class="btn-small" id="toggleImport">Add fights</button>
+      </div>
+      <div class="right-actions">
+        <button type="button" class="btn-primary" id="cardDone">Done</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -726,6 +1055,9 @@
   var ICON_ONE = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="10" cy="7" r="3.2"/><path d="M4 17c0-3 2.7-5 6-5s6 2 6 5"/></svg>';
   var ICON_TWO = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6.5" cy="7" r="2.6"/><circle cx="13.5" cy="7" r="2.6"/><path d="M2 17c0-2.6 2-4.3 4.5-4.3S11 14.4 11 17M9 17c0-2.6 2-4.3 4.5-4.3S18 14.4 18 17"/></svg>';
 
+  var ICON_PENCIL = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 3.5l3 3L7 16H4v-3z"/></svg>';
+  var ICON_TICK = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg>';
+
   var state = {
     shows: [],
     ready: false,
@@ -733,8 +1065,14 @@
     confirmingDelete: false,
     saving: false,
     filterWho: "all",
-    showComingSoon: true
+    showComingSoon: true,
+    showUfc: true,
+    formType: "show",
+    cardId: null
   };
+
+  function typeOf(item) { return item.type === "ufc" ? "ufc" : "show"; }
+  function fightsOf(item) { return Array.isArray(item.fights) ? item.fights : []; }
 
   function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, function (c) {
@@ -754,12 +1092,27 @@
       ? state.shows
       : state.shows.filter(function (s) { return s.watchers === state.filterWho; });
 
-    var comingShows = state.showComingSoon ? visible.filter(function (s) { return s.comingSoon; }) : [];
-    var readyShows = visible.filter(function (s) { return !s.comingSoon; });
+    var ufcEvents = state.showUfc ? visible.filter(function (s) { return typeOf(s) === "ufc"; }) : [];
+    var tvShows = visible.filter(function (s) { return typeOf(s) === "show"; });
 
+    var comingShows = state.showComingSoon ? tvShows.filter(function (s) { return s.comingSoon; }) : [];
+    var readyShows = tvShows.filter(function (s) { return !s.comingSoon; });
+
+    var totalUfc = visible.filter(function (s) { return typeOf(s) === "ufc"; }).length;
+    var bits = [];
+    bits.push("<strong>" + tvShows.length + "</strong> show" + (tvShows.length === 1 ? "" : "s"));
+    if (totalUfc) bits.push("<strong>" + totalUfc + "</strong> event" + (totalUfc === 1 ? "" : "s"));
     document.getElementById("statLine").innerHTML =
-      "<strong>" + visible.length + "</strong> show" + (visible.length === 1 ? "" : "s") +
+      bits.join(" &middot; ") +
       (state.filterWho === "all" ? "" : " for " + escapeHtml(state.filterWho));
+
+    var rowUfc = document.getElementById("rowUfc");
+    rowUfc.hidden = ufcEvents.length === 0 && !state.showUfc;
+    if (!rowUfc.hidden) {
+      document.getElementById("ufcCount").textContent = ufcEvents.length ? ufcEvents.length : "";
+      document.getElementById("ufcScroll").innerHTML =
+        ufcEvents.map(ufcTileHtml).join("") + addTileHtml("ufc");
+    }
 
     var rowComing = document.getElementById("rowComing");
     var rowReady = document.getElementById("rowReady");
@@ -770,21 +1123,42 @@
     document.getElementById("comingScroll").innerHTML = comingShows.map(tileHtml).join("");
 
     document.getElementById("readyCount").textContent = readyShows.length ? readyShows.length : "";
-    var readyHtml = readyShows.map(tileHtml).join("") + addTileHtml();
+    var readyHtml = readyShows.map(tileHtml).join("") + addTileHtml("show");
     var emptyMsg = state.shows.length === 0
       ? "Nothing on the list yet &mdash; add a show to get started."
       : "Nothing matches this filter.";
     document.getElementById("readyScroll").innerHTML = readyShows.length
       ? readyHtml
-      : '<div class="row-empty">' + emptyMsg + '</div>' + addTileHtml();
+      : '<div class="row-empty">' + emptyMsg + '</div>' + addTileHtml("show");
 
+    // Pencil buttons and plain show tiles both open the edit form. On a UFC
+    // tile the pencil sits inside the tile, so stop the click bubbling up to
+    // the tile itself (which opens the fight card instead).
     Array.prototype.forEach.call(document.querySelectorAll("[data-tile]"), function (el) {
-      el.addEventListener("click", function () { openModal(el.getAttribute("data-tile")); });
+      el.addEventListener("click", function (e) {
+        e.stopPropagation();
+        openModal(el.getAttribute("data-tile"));
+      });
     });
-    var addTileEl = document.getElementById("addTile");
-    if (addTileEl) addTileEl.addEventListener("click", function () { openModal(null); });
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-card]"), function (el) {
+      el.addEventListener("click", function () { openCard(el.getAttribute("data-card")); });
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openCard(el.getAttribute("data-card"));
+        }
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-add]"), function (el) {
+      el.addEventListener("click", function () { openModal(null, el.getAttribute("data-add")); });
+    });
 
     applyPosterImages();
+
+    // Keep an open fight card in step with live Firestore updates.
+    if (state.cardId) renderCard();
   }
 
   // Poster URLs are only applied once confirmed loadable — a broken or
@@ -806,12 +1180,46 @@
     });
   }
 
-  function addTileHtml() {
+  function addTileHtml(kind) {
     return (
-      '<button type="button" class="tile add-tile" id="addTile">' +
+      '<button type="button" class="tile add-tile" data-add="' + kind + '">' +
         '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 4v12M4 10h12"/></svg>' +
-        '<span>Add a show</span>' +
+        '<span>' + (kind === "ufc" ? "Add an event" : "Add a show") + '</span>' +
       '</button>'
+    );
+  }
+
+  function ufcTileHtml(ev) {
+    var style = sourceStyle(ev.source);
+    var watcherIcon = ev.watchers === "Just Me" ? ICON_ONE : ICON_TWO;
+    var fights = fightsOf(ev);
+    var done = fights.filter(function (f) { return f.watched; }).length;
+    var pct = fights.length ? Math.round((done / fights.length) * 100) : 0;
+
+    var foot = fights.length
+      ? '<span class="progress-track"><i style="width:' + pct + '%"></i></span>' +
+        '<span class="count-text">' + done + '/' + fights.length + '</span>'
+      : '<span class="no-card">No card yet</span>';
+
+    var headline = fights.length
+      ? '<span class="tile-meta headline">' + escapeHtml(fights[0].a + " v " + fights[0].b) + '</span>'
+      : '';
+
+    return (
+      '<div class="tile ufc-tile" role="button" tabindex="0" data-card="' + ev.id + '" ' +
+        (ev.posterUrl ? 'data-poster="' + escapeHtml(ev.posterUrl) + '" ' : '') +
+        'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';" ' +
+        'aria-label="' + escapeHtml(ev.name) + ', open fight card">' +
+        '<span class="tile-source">' + escapeHtml(ev.source) + '</span>' +
+        '<button type="button" class="tile-edit" data-tile="' + ev.id + '" ' +
+          'aria-label="Edit ' + escapeHtml(ev.name) + '">' + ICON_PENCIL + '</button>' +
+        '<span class="tile-scrim">' +
+          '<span class="tile-name">' + escapeHtml(ev.name) + '</span>' +
+          (ev.releaseDate ? '<span class="tile-meta release-line">' + escapeHtml(ev.releaseDate) + '</span>' : '') +
+          headline +
+          '<span class="tile-meta ufc-foot">' + watcherIcon + foot + '</span>' +
+        '</span>' +
+      '</div>'
     );
   }
 
@@ -893,7 +1301,44 @@
 
   posterInput.addEventListener("blur", checkPosterPreview);
 
-  function openModal(id) {
+  // A UFC event reuses every field a show has except season/episode, and its
+  // date is always shown (an event always has one) rather than hanging off the
+  // coming-soon toggle.
+  function applyFormType(type) {
+    state.formType = type;
+    var isUfc = type === "ufc";
+
+    Array.prototype.forEach.call(document.querySelectorAll(".type-btn"), function (b) {
+      b.classList.toggle("active", b.getAttribute("data-type") === type);
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".show-only"), function (el) {
+      el.hidden = isUfc;
+    });
+
+    document.getElementById("nameLabel").textContent = isUfc ? "Event name" : "Show name";
+    document.getElementById("f-name").placeholder = isUfc ? "e.g. UFC 320" : "e.g. Stranger Things";
+    document.getElementById("releaseLabel").innerHTML = isUfc
+      ? 'Event date <span class="hint">(optional)</span>'
+      : 'Expected release <span class="hint">(optional)</span>';
+    document.getElementById("f-release").placeholder = isUfc
+      ? "e.g. Saturday 4 October"
+      : "e.g. March 2027, or “TBC”";
+
+    if (isUfc) releaseField.hidden = false;
+    else releaseField.hidden = !soonToggle.checked;
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll(".type-btn"), function (btn) {
+    btn.addEventListener("click", function () {
+      applyFormType(btn.getAttribute("data-type"));
+      if (state.formType === "ufc" && sourceSelect.value === "Netflix") {
+        sourceSelect.value = "TNT Sports";
+        customSourceField.hidden = true;
+      }
+    });
+  });
+
+  function openModal(id, presetType) {
     state.editingId = id;
     state.confirmingDelete = false;
     form.reset();
@@ -904,8 +1349,10 @@
     if (id) {
       var show = state.shows.filter(function (s) { return s.id === id; })[0];
       if (!show) return;
-      modalTitle.textContent = "Edit show";
-      modalSub.textContent = "Update the details or mark it as watched below.";
+      var isUfc = typeOf(show) === "ufc";
+      applyFormType(isUfc ? "ufc" : "show");
+      modalTitle.textContent = isUfc ? "Edit event" : "Edit show";
+      modalSub.textContent = "Update the details or remove it from the list below.";
       submitBtn.textContent = "Save changes";
 
       document.getElementById("f-name").value = show.name;
@@ -921,12 +1368,17 @@
       document.getElementById("f-episode").value = show.episode || "";
       document.getElementById(show.watchers === "Just Me" ? "w-me" : "w-us").checked = true;
       soonToggle.checked = !!show.comingSoon;
-      releaseField.hidden = !show.comingSoon;
+      releaseField.hidden = isUfc ? false : !show.comingSoon;
       document.getElementById("f-release").value = show.releaseDate || "";
       document.getElementById("f-notes").value = show.notes || "";
     } else {
-      modalTitle.textContent = "Add a show";
-      modalSub.textContent = "Just the basics — you can always come back and tidy it up.";
+      var newType = presetType === "ufc" ? "ufc" : "show";
+      applyFormType(newType);
+      if (newType === "ufc") sourceSelect.value = "TNT Sports";
+      modalTitle.textContent = newType === "ufc" ? "Add an event" : "Add a show";
+      modalSub.textContent = newType === "ufc"
+        ? "Add the event now — you can build the fight card straight after."
+        : "Just the basics — you can always come back and tidy it up.";
       submitBtn.textContent = "Add to list";
     }
 
@@ -1013,6 +1465,13 @@
     render();
   });
 
+  document.getElementById("toggleUfc").addEventListener("click", function () {
+    state.showUfc = !state.showUfc;
+    this.classList.toggle("active", state.showUfc);
+    this.setAttribute("aria-pressed", String(state.showUfc));
+    render();
+  });
+
   sourceSelect.addEventListener("change", function () {
     customSourceField.hidden = sourceSelect.value !== "other";
     if (sourceSelect.value === "other") document.getElementById("f-source-custom").focus();
@@ -1034,17 +1493,19 @@
       ? (document.getElementById("f-source-custom").value.trim() || "Other")
       : sourceSelect.value;
     var watchers = document.querySelector('input[name="watchers"]:checked').value;
-    var comingSoon = soonToggle.checked;
+    var isUfc = state.formType === "ufc";
+    var comingSoon = isUfc ? false : soonToggle.checked;
 
     var data = {
+      type: isUfc ? "ufc" : "show",
       name: name,
       source: source,
       posterUrl: document.getElementById("f-poster").value.trim(),
-      season: document.getElementById("f-season").value.trim(),
-      episode: document.getElementById("f-episode").value.trim(),
+      season: isUfc ? "" : document.getElementById("f-season").value.trim(),
+      episode: isUfc ? "" : document.getElementById("f-episode").value.trim(),
       watchers: watchers,
       comingSoon: comingSoon,
-      releaseDate: comingSoon ? document.getElementById("f-release").value.trim() : "",
+      releaseDate: (isUfc || comingSoon) ? document.getElementById("f-release").value.trim() : "",
       notes: document.getElementById("f-notes").value.trim()
     };
 
@@ -1053,18 +1514,25 @@
     submitBtn.disabled = true;
 
     var savePromise;
+    var wasNew = !state.editingId;
     if (state.editingId) {
       savePromise = updateDoc(doc(db, "watchlist", state.editingId), data);
     } else {
       data.createdAt = serverTimestamp();
+      data.fights = [];
       savePromise = addDoc(showsCol, data);
     }
 
     savePromise
-      .then(function () {
+      .then(function (ref) {
         state.saving = false;
         submitBtn.disabled = false;
         closeModal();
+        // A new event is no use without its card — go straight there.
+        if (wasNew && isUfc && ref && ref.id) {
+          state.shows = state.shows.concat([Object.assign({ id: ref.id }, data)]);
+          openCard(ref.id);
+        }
       })
       .catch(function (err) {
         console.error(err);
@@ -1072,6 +1540,394 @@
         submitBtn.disabled = false;
         formError.textContent = "Couldn't save — check your connection and try again.";
       });
+  });
+
+  // ---------- fight card ----------
+
+  var cardBackdrop = document.getElementById("cardBackdrop");
+  var cardModal = cardBackdrop.querySelector(".fight-modal");
+  var fightList = document.getElementById("fightList");
+  var importPanel = document.getElementById("importPanel");
+  var importStatus = document.getElementById("importStatus");
+  var wikiQuery = document.getElementById("wikiQuery");
+  var wikiResults = document.getElementById("wikiResults");
+  var pasteBox = document.getElementById("pasteBox");
+
+  var SECTION_RE = /^(main card|preliminary card|early preliminary card|prelims|early prelims|featured (?:bout|prelim))/i;
+
+  function currentEvent() {
+    return state.shows.filter(function (s) { return s.id === state.cardId; })[0];
+  }
+
+  function newFightId() {
+    return "f" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  }
+
+  function cleanText(s) {
+    return String(s == null ? "" : s)
+      .replace(/\[[^\]]*\]/g, "")
+      .replace(/ /g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function fightKey(f) {
+    return (f.a + "|" + f.b).toLowerCase().replace(/[^a-z|]/g, "");
+  }
+
+  function openCard(id) {
+    state.cardId = id;
+    setImportOpen(false);
+    importStatus.textContent = "";
+    importStatus.className = "import-status";
+    wikiResults.innerHTML = "";
+    pasteBox.value = "";
+    var ev = currentEvent();
+    wikiQuery.value = ev ? ev.name : "";
+    cardBackdrop.hidden = false;
+    renderCard();
+    cardModal.focus();
+    // An event with no card yet is only useful once it has one.
+    if (ev && fightsOf(ev).length === 0) setImportOpen(true);
+  }
+
+  function closeCard() {
+    cardBackdrop.hidden = true;
+    state.cardId = null;
+  }
+
+  function setImportOpen(open) {
+    importPanel.hidden = !open;
+    document.getElementById("toggleImport").textContent = open ? "Hide" : "Add fights";
+    if (open) {
+      // On a long card the panel opens below the fold — bring it into view.
+      setTimeout(function () {
+        importPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 30);
+    }
+  }
+
+  function renderCard() {
+    var ev = currentEvent();
+    if (!ev) { closeCard(); return; }
+
+    var fights = fightsOf(ev);
+    var done = fights.filter(function (f) { return f.watched; }).length;
+    var pct = fights.length ? Math.round((done / fights.length) * 100) : 0;
+
+    document.getElementById("cardTitle").textContent = ev.name;
+    document.getElementById("cardSub").textContent =
+      ev.releaseDate || (fights.length ? "" : "No fights on the card yet");
+    document.getElementById("cardProgressFill").style.width = pct + "%";
+    document.getElementById("cardProgressText").textContent =
+      fights.length ? done + " of " + fights.length + " watched" : "—";
+
+    if (!fights.length) {
+      fightList.innerHTML =
+        '<div class="fight-empty">Nothing on the card yet. Search Wikipedia below, or paste the fights in.</div>';
+      return;
+    }
+
+    var html = "";
+    var lastSection = null;
+    fights.forEach(function (f, i) {
+      var section = f.section || "Main card";
+      if (section !== lastSection) {
+        html += '<div class="fight-section">' + escapeHtml(section) + "</div>";
+        lastSection = section;
+      }
+      html +=
+        '<div class="fight-row' + (f.watched ? " watched" : "") + (i === 0 ? " main" : "") + '">' +
+          '<button type="button" class="fight-toggle" data-fight="' + f.id + '" ' +
+            'aria-pressed="' + (f.watched ? "true" : "false") + '">' +
+            '<span class="fight-check">' + ICON_TICK + "</span>" +
+            '<span class="fight-body">' +
+              (f.weight ? '<span class="fight-weight">' + escapeHtml(f.weight) + "</span>" : "") +
+              '<span class="fight-names">' + escapeHtml(f.a) + " <em>vs</em> " + escapeHtml(f.b) + "</span>" +
+            "</span>" +
+          "</button>" +
+          '<button type="button" class="fight-remove" data-remove="' + f.id + '" ' +
+            'aria-label="Remove this fight">&times;</button>' +
+        "</div>";
+    });
+    fightList.innerHTML = html;
+
+    Array.prototype.forEach.call(fightList.querySelectorAll("[data-fight]"), function (el) {
+      el.addEventListener("click", function () { toggleFight(el.getAttribute("data-fight")); });
+    });
+    Array.prototype.forEach.call(fightList.querySelectorAll("[data-remove]"), function (el) {
+      el.addEventListener("click", function () { removeFight(el.getAttribute("data-remove")); });
+    });
+  }
+
+  function saveFights(fights) {
+    var id = state.cardId;
+    if (!id) return Promise.resolve();
+    // Update the local copy first so the card reacts instantly, then persist.
+    var ev = currentEvent();
+    if (ev) { ev.fights = fights; renderCard(); }
+    return updateDoc(doc(db, "watchlist", id), { fights: fights }).catch(function (err) {
+      console.error(err);
+      importStatus.className = "import-status error";
+      importStatus.textContent = "Couldn't save — check your connection.";
+    });
+  }
+
+  function toggleFight(fightId) {
+    var ev = currentEvent();
+    if (!ev) return;
+    saveFights(fightsOf(ev).map(function (f) {
+      return f.id === fightId ? Object.assign({}, f, { watched: !f.watched }) : f;
+    }));
+  }
+
+  function removeFight(fightId) {
+    var ev = currentEvent();
+    if (!ev) return;
+    saveFights(fightsOf(ev).filter(function (f) { return f.id !== fightId; }));
+  }
+
+  // "merge" replaces the card but keeps anything already ticked off;
+  // "append" adds only fights that aren't on the card already.
+  function importFights(incoming, mode) {
+    var ev = currentEvent();
+    if (!ev) return;
+    var existing = fightsOf(ev);
+
+    if (mode === "append" && existing.length) {
+      var have = {};
+      existing.forEach(function (f) { have[fightKey(f)] = true; });
+      var added = incoming.filter(function (f) { return !have[fightKey(f)]; });
+      if (!added.length) {
+        importStatus.className = "import-status";
+        importStatus.textContent = "Those fights are already on the card.";
+        return;
+      }
+      saveFights(existing.concat(added));
+      importStatus.className = "import-status ok";
+      importStatus.textContent = "Added " + added.length + " fight" + (added.length === 1 ? "" : "s") + ".";
+      return;
+    }
+
+    var byKey = {};
+    existing.forEach(function (f) { byKey[fightKey(f)] = f; });
+    var merged = incoming.map(function (f) {
+      var prev = byKey[fightKey(f)];
+      return prev ? Object.assign({}, f, { id: prev.id, watched: !!prev.watched }) : f;
+    });
+    saveFights(merged);
+    importStatus.className = "import-status ok";
+    importStatus.textContent = "Loaded " + merged.length + " fight" + (merged.length === 1 ? "" : "s") + ".";
+  }
+
+  // ---------- Wikipedia ----------
+  // The Wikipedia API allows anonymous cross-origin requests when called with
+  // origin=*, so this works straight from the browser — no key, no proxy.
+
+  var WIKI_API = "https://en.wikipedia.org/w/api.php";
+
+  function wikiSearch(q) {
+    var term = /ufc/i.test(q) ? q : "UFC " + q;
+    var url = WIKI_API + "?action=query&list=search&format=json&origin=*&srlimit=10&srsearch=" +
+      encodeURIComponent(term);
+    return fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+      var hits = (d.query && d.query.search) || [];
+      return hits.map(function (h) { return h.title; })
+                 .filter(function (t) { return /^UFC/i.test(t); });
+    });
+  }
+
+  function wikiFetchCard(title) {
+    var url = WIKI_API + "?action=parse&prop=text&format=json&origin=*&redirects=1&page=" +
+      encodeURIComponent(title);
+    return fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.error) throw new Error(d.error.info || "Couldn't open that page");
+      var html = d.parse && d.parse.text && d.parse.text["*"];
+      if (!html) throw new Error("That page has no content");
+      var docp = new DOMParser().parseFromString(html, "text/html");
+      return { fights: parseFightTables(docp), date: parseEventDate(docp) };
+    });
+  }
+
+  function parseFightTables(docp) {
+    var tables = docp.querySelectorAll("table");
+    for (var t = 0; t < tables.length; t++) {
+      var fights = parseFightTable(tables[t]);
+      if (fights.length) return fights;
+    }
+    return [];
+  }
+
+  function parseFightTable(table) {
+    var out = [];
+    var section = "Main card";
+    var rows = table.querySelectorAll("tr");
+
+    for (var i = 0; i < rows.length; i++) {
+      var cells = rows[i].querySelectorAll("th, td");
+
+      if (cells.length === 1) {
+        var label = cleanText(cells[0].textContent);
+        if (SECTION_RE.test(label)) section = label;
+        continue;
+      }
+      if (cells.length < 4) continue;
+
+      // Column 2 is the "vs." / "def." separator; anything from column 4
+      // onwards is the result (method, round, time) and is deliberately
+      // ignored so an imported card can never spoil a fight.
+      if (!/^(vs\.?|def\.?)$/i.test(cleanText(cells[2].textContent))) continue;
+
+      var a = cleanText(cells[1].textContent);
+      var b = cleanText(cells[3].textContent);
+      if (!a || !b) continue;
+
+      out.push({
+        id: newFightId(),
+        section: section,
+        weight: cleanText(cells[0].textContent),
+        a: a,
+        b: b,
+        watched: false
+      });
+    }
+    return out;
+  }
+
+  function parseEventDate(docp) {
+    try {
+      var info = docp.querySelector(".infobox");
+      if (!info) return "";
+      var rows = info.querySelectorAll("tr");
+      for (var i = 0; i < rows.length; i++) {
+        var th = rows[i].querySelector("th");
+        var td = rows[i].querySelector("td");
+        if (th && td && /^date$/i.test(cleanText(th.textContent))) return cleanText(td.textContent);
+      }
+    } catch (e) { /* date is a nice-to-have */ }
+    return "";
+  }
+
+  function loadFromWikipedia(title) {
+    importStatus.className = "import-status";
+    importStatus.textContent = "Fetching " + title + "…";
+    wikiResults.innerHTML = "";
+
+    wikiFetchCard(title).then(function (res) {
+      if (!res.fights.length) {
+        importStatus.className = "import-status error";
+        importStatus.textContent = "Found the page but couldn't read a fight card from it — try pasting instead.";
+        return;
+      }
+      importFights(res.fights, "merge");
+
+      // Fill in the event date if it's still blank.
+      var ev = currentEvent();
+      if (ev && res.date && !ev.releaseDate) {
+        ev.releaseDate = res.date;
+        updateDoc(doc(db, "watchlist", ev.id), { releaseDate: res.date }).catch(function (e) {
+          console.error(e);
+        });
+        renderCard();
+      }
+    }).catch(function (err) {
+      console.error(err);
+      importStatus.className = "import-status error";
+      importStatus.textContent = "Couldn't reach Wikipedia — try again, or paste the card in below.";
+    });
+  }
+
+  document.getElementById("wikiSearchBtn").addEventListener("click", function () {
+    var q = wikiQuery.value.trim();
+    if (!q) return;
+    importStatus.className = "import-status";
+    importStatus.textContent = "Searching…";
+    wikiResults.innerHTML = "";
+
+    wikiSearch(q).then(function (titles) {
+      if (!titles.length) {
+        importStatus.className = "import-status error";
+        importStatus.textContent = "No UFC events matched that.";
+        return;
+      }
+      importStatus.textContent = "Pick the event:";
+      wikiResults.innerHTML = titles.map(function (t) {
+        return '<button type="button" class="wiki-result" data-wiki="' + escapeHtml(t) + '">' +
+          escapeHtml(t) + "</button>";
+      }).join("");
+      Array.prototype.forEach.call(wikiResults.querySelectorAll("[data-wiki]"), function (el) {
+        el.addEventListener("click", function () { loadFromWikipedia(el.getAttribute("data-wiki")); });
+      });
+    }).catch(function (err) {
+      console.error(err);
+      importStatus.className = "import-status error";
+      importStatus.textContent = "Couldn't reach Wikipedia — try pasting the card in below.";
+    });
+  });
+
+  wikiQuery.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      document.getElementById("wikiSearchBtn").click();
+    }
+  });
+
+  // ---------- pasted / typed text ----------
+
+  function parseFightText(text) {
+    var lines = String(text).split(/\r?\n/);
+    var out = [];
+    var section = "Main card";
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = cleanText(lines[i].replace(/\t/g, ""));
+      if (!line) continue;
+
+      var plain = line.replace(//g, " ").trim();
+      if (SECTION_RE.test(plain)) { section = plain; continue; }
+
+      var weight = "", a = "", b = "";
+      var cells = line.split("").map(function (c) { return c.trim(); });
+
+      if (cells.length >= 4 && /^(vs\.?|def\.?)$/i.test(cells[2])) {
+        weight = cells[0]; a = cells[1]; b = cells[3];
+      } else {
+        var m = plain.match(/^(.*?)\s+(?:vs\.?|def\.?|v)\s+(.*)$/i);
+        if (!m) continue;
+        a = m[1].trim();
+        b = m[2].trim();
+        // Every MMA weight class ends in "weight", so a leading one is easy
+        // to split off when the row arrived as a single run of text.
+        var wm = a.match(/^((?:Women's\s+)?(?:Light\s+)?[A-Za-z]*weight)\s+(.+)$/i);
+        if (wm) { weight = wm[1].trim(); a = wm[2].trim(); }
+        // Drop any result columns that came along on the same line.
+        b = b.split(/\s{2,}/)[0].trim();
+      }
+
+      if (!a || !b) continue;
+      out.push({ id: newFightId(), section: section, weight: weight, a: a, b: b, watched: false });
+    }
+    return out;
+  }
+
+  document.getElementById("pasteImportBtn").addEventListener("click", function () {
+    var fights = parseFightText(pasteBox.value);
+    if (!fights.length) {
+      importStatus.className = "import-status error";
+      importStatus.textContent = "Couldn't find any fights in that — each line needs to look like “Fighter A vs Fighter B”.";
+      return;
+    }
+    importFights(fights, "append");
+    pasteBox.value = "";
+  });
+
+  document.getElementById("toggleImport").addEventListener("click", function () {
+    setImportOpen(importPanel.hidden);
+  });
+  document.getElementById("cardDone").addEventListener("click", closeCard);
+  cardBackdrop.addEventListener("click", function (e) { if (e.target === cardBackdrop) closeCard(); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !cardBackdrop.hidden) closeCard();
   });
 
   // ---------- auth + live data ----------
