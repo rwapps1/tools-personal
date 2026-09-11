@@ -826,12 +826,40 @@
   }
   .fight-section:first-child { margin-top: 0; }
 
-  .fight-row {
+  .fight-row { margin-bottom: 6px; }
+  .fight-main { display: flex; align-items: stretch; gap: 4px; }
+
+  .fight-reveal {
+    flex-shrink: 0;
+    width: 38px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-faint);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
     display: flex;
-    align-items: stretch;
-    gap: 4px;
-    margin-bottom: 6px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
   }
+  .fight-reveal:hover { color: var(--text); border-color: var(--text-faint); }
+  .fight-reveal.on { color: var(--gold); border-color: var(--gold); }
+  .fight-reveal svg { width: 16px; height: 16px; }
+
+  .fight-result {
+    margin: 6px 0 0;
+    padding: 9px 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--gold);
+    border-radius: var(--radius-sm);
+    font-size: 12.5px;
+    color: var(--text-dim);
+    line-height: 1.45;
+  }
+  .fight-result strong { color: var(--text); font-weight: 700; }
+  .fight-result .dot { opacity: 0.4; padding: 0 6px; }
+  .fight-result.none { border-left-color: var(--border); color: var(--text-faint); }
 
   .fight-toggle {
     flex: 1;
@@ -2658,6 +2686,60 @@
 
   var SECTION_RE = /^(main card|preliminary card|early preliminary card|prelims|early prelims|featured (?:bout|prelim))/i;
 
+  // Results are deliberately never written to Firestore and never survive
+  // closing the card — they exist only while you're looking at them, so
+  // nothing can leak onto a tile or show up on a later visit.
+  var cardResults = null;
+  var cardResultsLoading = false;
+  var revealed = {};
+
+  var ICON_EYE = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.4"/></svg>';
+  var ICON_EYE_OFF = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5c1.5 0 2.8.4 3.9 1M18.5 10s-3 5.5-8.5 5.5c-1.5 0-2.8-.4-3.9-1"/><path d="M3 3l14 14"/></svg>';
+
+  function loadResults(then) {
+    if (cardResults) { then(); return; }
+    if (cardResultsLoading) return;
+
+    var ev = currentEvent();
+    if (!ev) return;
+    if (!ev.wikiTitle) {
+      setCardStatus("Pull this card from Wikipedia first (Refresh) so results can be looked up.", "error");
+      return;
+    }
+
+    cardResultsLoading = true;
+    setCardStatus("Looking up the result…");
+
+    var url = WIKI_API + "?action=parse&prop=text&format=json&origin=*&redirects=1&page=" +
+      encodeURIComponent(ev.wikiTitle);
+
+    fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+      cardResultsLoading = false;
+      if (d.error) throw new Error(d.error.info || "Page not found");
+      var html = d.parse && d.parse.text && d.parse.text["*"];
+      if (!html) throw new Error("No content");
+      cardResults = parseResults(new DOMParser().parseFromString(html, "text/html"));
+      setCardStatus("");
+      then();
+    }).catch(function (err) {
+      cardResultsLoading = false;
+      console.error(err);
+      setCardStatus("Couldn't fetch the result — try again shortly.", "error");
+    });
+  }
+
+  function toggleReveal(fightId) {
+    if (revealed[fightId]) {
+      delete revealed[fightId];
+      renderCard();
+      return;
+    }
+    loadResults(function () {
+      revealed[fightId] = true;
+      renderCard();
+    });
+  }
+
   function currentEvent() {
     return state.shows.filter(function (s) { return s.id === state.cardId; })[0];
   }
@@ -2684,6 +2766,10 @@
     importStatus.textContent = "";
     importStatus.className = "import-status";
     setCardStatus("");
+    // Every visit starts spoiler-free.
+    cardResults = null;
+    cardResultsLoading = false;
+    revealed = {};
     wikiResults.innerHTML = "";
     pasteBox.value = "";
     var ev = currentEvent();
@@ -2699,6 +2785,9 @@
   function hideCardDom() {
     cardBackdrop.hidden = true;
     state.cardId = null;
+    cardResults = null;
+    cardResultsLoading = false;
+    revealed = {};
   }
 
   function closeCard() {
@@ -2739,6 +2828,9 @@
       return;
     }
 
+    // No point offering a result before the event has taken place.
+    var canReveal = !ev.dateISO || ev.dateISO <= todayISO();
+
     var html = "";
     var lastSection = null;
     fights.forEach(function (f, i) {
@@ -2747,18 +2839,28 @@
         html += '<div class="fight-section">' + escapeHtml(section) + "</div>";
         lastSection = section;
       }
+      var isOpen = !!revealed[f.id];
       html +=
         '<div class="fight-row' + (f.watched ? " watched" : "") + (i === 0 ? " main" : "") + '">' +
-          '<button type="button" class="fight-toggle" data-fight="' + f.id + '" ' +
-            'aria-pressed="' + (f.watched ? "true" : "false") + '">' +
-            '<span class="fight-check">' + ICON_TICK + "</span>" +
-            '<span class="fight-body">' +
-              (f.weight ? '<span class="fight-weight">' + escapeHtml(f.weight) + "</span>" : "") +
-              '<span class="fight-names">' + escapeHtml(f.a) + " <em>vs</em> " + escapeHtml(f.b) + "</span>" +
-            "</span>" +
-          "</button>" +
-          '<button type="button" class="fight-remove" data-remove="' + f.id + '" ' +
-            'aria-label="Remove this fight">&times;</button>' +
+          '<div class="fight-main">' +
+            '<button type="button" class="fight-toggle" data-fight="' + f.id + '" ' +
+              'aria-pressed="' + (f.watched ? "true" : "false") + '">' +
+              '<span class="fight-check">' + ICON_TICK + "</span>" +
+              '<span class="fight-body">' +
+                (f.weight ? '<span class="fight-weight">' + escapeHtml(f.weight) + "</span>" : "") +
+                '<span class="fight-names">' + escapeHtml(f.a) + " <em>vs</em> " + escapeHtml(f.b) + "</span>" +
+              "</span>" +
+            "</button>" +
+            (canReveal
+              ? '<button type="button" class="fight-reveal' + (isOpen ? " on" : "") + '" ' +
+                  'data-reveal="' + f.id + '" aria-pressed="' + (isOpen ? "true" : "false") + '" ' +
+                  'aria-label="' + (isOpen ? "Hide" : "Show") + ' result">' +
+                  (isOpen ? ICON_EYE_OFF : ICON_EYE) + "</button>"
+              : "") +
+            '<button type="button" class="fight-remove" data-remove="' + f.id + '" ' +
+              'aria-label="Remove this fight">&times;</button>' +
+          "</div>" +
+          (isOpen ? resultHtml(f) : "") +
         "</div>";
     });
     fightList.innerHTML = html;
@@ -2769,6 +2871,29 @@
     Array.prototype.forEach.call(fightList.querySelectorAll("[data-remove]"), function (el) {
       el.addEventListener("click", function () { removeFight(el.getAttribute("data-remove")); });
     });
+    Array.prototype.forEach.call(fightList.querySelectorAll("[data-reveal]"), function (el) {
+      el.addEventListener("click", function () { toggleReveal(el.getAttribute("data-reveal")); });
+    });
+  }
+
+  function resultHtml(f) {
+    var res = cardResults ? cardResults[pairKey(f.a, f.b)] : null;
+    if (!res) {
+      return '<div class="fight-result none">No result listed on Wikipedia yet.</div>';
+    }
+
+    var head = res.winner
+      ? "<strong>" + escapeHtml(res.winner) + "</strong> def. " + escapeHtml(res.loser)
+      : "<strong>" + escapeHtml(res.method) + "</strong>";
+
+    var bits = [];
+    if (res.winner && res.method) bits.push(escapeHtml(res.method));
+    if (res.round) bits.push("Round " + escapeHtml(res.round));
+    if (res.time) bits.push(escapeHtml(res.time));
+
+    return '<div class="fight-result">' + head +
+      (bits.length ? '<span class="dot">&middot;</span>' + bits.join('<span class="dot">&middot;</span>') : "") +
+      "</div>";
   }
 
   function saveFights(fights) {
@@ -2928,6 +3053,44 @@
         b: b,
         watched: false
       });
+    }
+    return out;
+  }
+
+  // Results are matched on the pair of names regardless of which way round
+  // they appear — Wikipedia puts the winner in the first column once a fight
+  // is over, so the stored order often flips.
+  function pairKey(a, b) {
+    var x = String(a || "").toLowerCase().replace(/[^a-z]/g, "");
+    var y = String(b || "").toLowerCase().replace(/[^a-z]/g, "");
+    return x < y ? x + "|" + y : y + "|" + x;
+  }
+
+  // Only ever called when a result is explicitly asked for.
+  function parseResults(docp) {
+    var out = {};
+    var rows = docp.querySelectorAll("tr");
+
+    for (var i = 0; i < rows.length; i++) {
+      var cells = rows[i].querySelectorAll("th, td");
+      if (cells.length < 5) continue;
+
+      var sep = cleanText(cells[2].textContent);
+      if (!/^(vs\.?|def\.?)$/i.test(sep)) continue;
+
+      var a = cleanText(cells[1].textContent);
+      var b = cleanText(cells[3].textContent);
+      var method = cleanText(cells[4].textContent);
+      if (!a || !b || !method) continue;
+
+      var decided = /^def\.?$/i.test(sep);
+      out[pairKey(a, b)] = {
+        winner: decided ? a : "",
+        loser: decided ? b : "",
+        method: method,
+        round: cells.length > 5 ? cleanText(cells[5].textContent) : "",
+        time: cells.length > 6 ? cleanText(cells[6].textContent) : ""
+      };
     }
     return out;
   }
