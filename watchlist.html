@@ -2692,6 +2692,7 @@
   var cardResults = null;
   var cardResultsLoading = false;
   var revealed = {};
+  var pendingReveal = null;
 
   var ICON_EYE = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5 18.5 10 18.5 10 15.5 15.5 10 15.5 1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.4"/></svg>';
   var ICON_EYE_OFF = '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 10S4.5 4.5 10 4.5c1.5 0 2.8.4 3.9 1M18.5 10s-3 5.5-8.5 5.5c-1.5 0-2.8-.4-3.9-1"/><path d="M3 3l14 14"/></svg>';
@@ -2702,8 +2703,14 @@
 
     var ev = currentEvent();
     if (!ev) return;
+
+    // Cards built before the page title was recorded — and pasted ones —
+    // have nothing to look up, so ask which page this event is, once.
     if (!ev.wikiTitle) {
-      setCardStatus("Pull this card from Wikipedia first (Refresh) so results can be looked up.", "error");
+      setCardStatus("Which Wikipedia page is this event? Pick it below.");
+      setImportOpen(true);
+      wikiQuery.value = ev.name;
+      runWikiSearch(ev.name, "Pick the event to look up results:", linkPageForResults);
       return;
     }
 
@@ -2728,13 +2735,36 @@
     });
   }
 
+  // Links the page to the event without touching the fight list, then picks
+  // up the reveal that was waiting on it.
+  function linkPageForResults(title) {
+    var ev = currentEvent();
+    if (!ev) return;
+    ev.wikiTitle = title;
+    updateDoc(doc(db, "watchlist", ev.id), { wikiTitle: title }).catch(function (e) {
+      console.error(e);
+    });
+    wikiResults.innerHTML = "";
+    importStatus.textContent = "";
+    setImportOpen(false);
+
+    var waiting = pendingReveal;
+    pendingReveal = null;
+    loadResults(function () {
+      if (waiting) revealed[waiting] = true;
+      renderCard();
+    });
+  }
+
   function toggleReveal(fightId) {
     if (revealed[fightId]) {
       delete revealed[fightId];
       renderCard();
       return;
     }
+    pendingReveal = fightId;
     loadResults(function () {
+      pendingReveal = null;
       revealed[fightId] = true;
       renderCard();
     });
@@ -2770,6 +2800,7 @@
     cardResults = null;
     cardResultsLoading = false;
     revealed = {};
+    pendingReveal = null;
     wikiResults.innerHTML = "";
     pasteBox.value = "";
     var ev = currentEvent();
@@ -2788,6 +2819,7 @@
     cardResults = null;
     cardResultsLoading = false;
     revealed = {};
+    pendingReveal = null;
   }
 
   function closeCard() {
@@ -3172,32 +3204,38 @@
     document.getElementById("wikiSearchBtn").click();
   });
 
-  document.getElementById("wikiSearchBtn").addEventListener("click", function () {
-    var q = wikiQuery.value.trim();
-    if (!q) return;
+  // Shared search + picker. `onPick` decides what happens with the chosen
+  // page — import the card, or just link it so results can be looked up.
+  function runWikiSearch(query, prompt, onPick) {
+    if (!query) return;
     importStatus.className = "import-status";
     importStatus.textContent = "Searching…";
     wikiResults.innerHTML = "";
 
-    wikiSearch(q).then(function (titles) {
+    wikiSearch(query).then(function (titles) {
       if (!titles.length) {
         importStatus.className = "import-status error";
         importStatus.textContent = "No UFC events matched that.";
         return;
       }
-      importStatus.textContent = "Pick the event:";
+      importStatus.className = "import-status";
+      importStatus.textContent = prompt;
       wikiResults.innerHTML = titles.map(function (t) {
         return '<button type="button" class="wiki-result" data-wiki="' + escapeHtml(t) + '">' +
           escapeHtml(t) + "</button>";
       }).join("");
       Array.prototype.forEach.call(wikiResults.querySelectorAll("[data-wiki]"), function (el) {
-        el.addEventListener("click", function () { loadFromWikipedia(el.getAttribute("data-wiki")); });
+        el.addEventListener("click", function () { onPick(el.getAttribute("data-wiki")); });
       });
     }).catch(function (err) {
       console.error(err);
       importStatus.className = "import-status error";
       importStatus.textContent = "Couldn't reach Wikipedia — try pasting the card in below.";
     });
+  }
+
+  document.getElementById("wikiSearchBtn").addEventListener("click", function () {
+    runWikiSearch(wikiQuery.value.trim(), "Pick the event:", loadFromWikipedia);
   });
 
   wikiQuery.addEventListener("keydown", function (e) {
