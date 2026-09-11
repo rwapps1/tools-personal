@@ -105,23 +105,29 @@
   }
   .archive-btn[hidden] { display: none; }
   .archive-btn:hover { color: var(--text); border-color: var(--text-faint); }
-  .archive-btn.on { border-color: var(--accent); background: rgba(225,29,51,0.16); color: var(--text); }
-
-  header .title-block { flex: 1 1 100%; }
-  header > button { margin-top: 2px; }
-
   /* ---------- reorder ---------- */
 
-  .reorder-hint {
-    font-size: 12.5px;
-    color: var(--text-faint);
-    background: var(--surface);
+  /* Sits at the right-hand end of the row it reorders. */
+  .row-pill {
+    margin-left: auto;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 9px 12px;
-    margin: 0 0 18px;
+    background: var(--surface);
+    color: var(--text-faint);
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 11.5px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    cursor: pointer;
   }
-  .reorder-hint[hidden] { display: none; }
+  .row-pill:hover { color: var(--text); border-color: var(--text-faint); }
+  .row-pill.on { border-color: var(--accent); background: rgba(225,29,51,0.16); color: var(--text); }
+  .row-pill svg { width: 13px; height: 13px; }
 
   .tile-move {
     position: absolute;
@@ -675,7 +681,8 @@
     margin-top: 10px;
     min-height: 38px;
   }
-  .left-actions { display: flex; align-items: center; }
+  .left-actions { display: flex; align-items: center; gap: 8px; }
+  .left-actions .btn-small[hidden] { display: none; }
   .right-actions { display: flex; gap: 10px; margin-left: auto; }
 
   .link-danger {
@@ -1132,10 +1139,6 @@
     <div class="title-block">
       <h1>What We're <span>Watching</span></h1>
     </div>
-    <button type="button" class="archive-btn" id="toggleReorder">
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4L4 7h6zM13 16l3-3h-6z"/><path d="M4 7h12M4 13h12"/></svg>
-      <span id="reorderLabel">Reorder</span>
-    </button>
     <button type="button" class="archive-btn" id="openArchive" hidden>
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h14v11H3z"/><path d="M2 3h16v3H2zM8 10h4"/></svg>
       Watched <span class="archive-count" id="archiveCount"></span>
@@ -1155,12 +1158,15 @@
 
   <div class="stat-line" id="statLine">Loading your list&hellip;</div>
 
-  <p class="reorder-hint" id="reorderHint" hidden>
-    Use the arrows to shuffle things around. UFC Events and Coming Soon stay in date order.
-  </p>
 
   <div class="row ready" id="rowReady" hidden>
-    <div class="row-title"><h2>On The List</h2><span class="count" id="readyCount"></span></div>
+    <div class="row-title">
+      <h2>On The List</h2><span class="count" id="readyCount"></span>
+      <button type="button" class="row-pill" data-reorder="ready">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4L4 7h6zM13 16l3-3h-6z"/><path d="M4 7h12M4 13h12"/></svg>
+        <span class="row-pill-label">Reorder</span>
+      </button>
+    </div>
     <div class="row-scroll" id="readyScroll"></div>
   </div>
 
@@ -1175,7 +1181,13 @@
   </div>
 
   <div class="row potential" id="rowPotential" hidden>
-    <div class="row-title"><h2>Potential Watches</h2><span class="count" id="potentialCount"></span></div>
+    <div class="row-title">
+      <h2>Potential Watches</h2><span class="count" id="potentialCount"></span>
+      <button type="button" class="row-pill" data-reorder="potential">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4L4 7h6zM13 16l3-3h-6z"/><path d="M4 7h12M4 13h12"/></svg>
+        <span class="row-pill-label">Reorder</span>
+      </button>
+    </div>
     <div class="row-scroll" id="potentialScroll"></div>
   </div>
 
@@ -1265,9 +1277,9 @@
         </div>
       </div>
 
-      <div class="field show-only" id="soonField">
+      <div class="field" id="soonField">
         <div class="toggle-row">
-          <label class="toggle-label" for="f-soon">Not out yet &mdash; mark as coming soon</label>
+          <label class="toggle-label" for="f-soon" id="soonLabel">Not out yet &mdash; mark as coming soon</label>
           <label class="switch" for="f-soon">
             <input type="checkbox" id="f-soon">
             <span class="track"></span>
@@ -1357,6 +1369,7 @@
         <span class="progress-track"><i id="cardProgressFill" style="width:0%"></i></span>
         <span class="progress-text" id="cardProgressText"></span>
       </div>
+      <p class="import-status" id="cardStatus"></p>
     </div>
 
     <div id="fightList"></div>
@@ -1386,6 +1399,7 @@
 
     <div class="modal-actions fight-actions">
       <div class="left-actions">
+        <button type="button" class="btn-small" id="refreshCard" hidden>Refresh</button>
         <button type="button" class="btn-small" id="toggleImport">Add fights</button>
       </div>
       <div class="right-actions">
@@ -1451,7 +1465,7 @@
     formType: "show",
     cardId: null,
     epId: null,
-    reordering: false
+    reorderRow: null
   };
 
   // The manually-ordered rows, as last rendered, so the arrows know what
@@ -1603,9 +1617,14 @@
     archiveBtn.hidden = archived.length === 0;
     document.getElementById("archiveCount").textContent = archived.length ? archived.length : "";
 
-    var ufcEvents = state.showUfc ? visible.filter(function (s) { return typeOf(s) === "ufc"; }) : [];
-    ufcEvents = ufcEvents.slice().sort(byDate);
+    var ufcAll = visible.filter(function (s) { return typeOf(s) === "ufc"; });
     var tvShows = visible.filter(function (s) { return typeOf(s) === "show"; });
+
+    // An event held as coming soon waits in that row until its date lands.
+    var ufcEvents = state.showUfc
+      ? ufcAll.filter(function (s) { return !s.comingSoon; }).sort(byDate)
+      : [];
+    var ufcComing = state.showUfc ? ufcAll.filter(function (s) { return s.comingSoon; }) : [];
 
     // Three buckets, in priority order: undecided, not out yet, on the list.
     var potentialShows = state.showPotential
@@ -1613,14 +1632,14 @@
       : [];
     var decided = tvShows.filter(function (s) { return !s.potential; });
     var comingShows = state.showComingSoon
-      ? decided.filter(function (s) { return s.comingSoon; }).sort(byDate)
+      ? decided.filter(function (s) { return s.comingSoon; }).concat(ufcComing).sort(byDate)
       : [];
     var readyShows = decided.filter(function (s) { return !s.comingSoon; }).sort(byOrder);
 
     rowLists.ready = readyShows;
     rowLists.potential = potentialShows;
 
-    var totalUfc = visible.filter(function (s) { return typeOf(s) === "ufc"; }).length;
+    var totalUfc = ufcAll.length;
     var bits = [];
     bits.push("<strong>" + tvShows.length + "</strong> show" + (tvShows.length === 1 ? "" : "s"));
     if (totalUfc) bits.push("<strong>" + totalUfc + "</strong> event" + (totalUfc === 1 ? "" : "s"));
@@ -1643,7 +1662,9 @@
 
     document.getElementById("comingCount").textContent = comingShows.length ? comingShows.length : "";
     document.getElementById("comingScroll").innerHTML =
-      comingShows.map(function (s) { return tileHtml(s, null); }).join("");
+      comingShows.map(function (s) {
+        return typeOf(s) === "ufc" ? ufcTileHtml(s) : tileHtml(s, null);
+      }).join("");
 
     var rowPotential = document.getElementById("rowPotential");
     rowPotential.hidden = potentialShows.length === 0;
@@ -1652,7 +1673,13 @@
       potentialShows.map(function (s) { return tileHtml(s, "potential"); }).join("");
 
     document.getElementById("readyCount").textContent = readyShows.length ? readyShows.length : "";
-    var addShowTile = state.reordering ? "" : addTileHtml("show");
+    var addShowTile = state.reorderRow === "ready" ? "" : addTileHtml("show");
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-reorder]"), function (btn) {
+      var on = state.reorderRow === btn.getAttribute("data-reorder");
+      btn.classList.toggle("on", on);
+      btn.querySelector(".row-pill-label").textContent = on ? "Done" : "Reorder";
+    });
     var readyHtml = readyShows.map(function (s) { return tileHtml(s, "ready"); }).join("") + addShowTile;
     var emptyMsg = state.shows.length === 0
       ? "Nothing on the list yet &mdash; add a show to get started."
@@ -1766,6 +1793,7 @@
         '<span class="tile-source">' + escapeHtml(ev.source) + '</span>' +
         '<button type="button" class="tile-edit" data-tile="' + ev.id + '" ' +
           'aria-label="Edit ' + escapeHtml(ev.name) + '">' + ICON_PENCIL + '</button>' +
+        (ev.comingSoon ? '<span class="tile-soon">Soon</span>' : '') +
         '<span class="tile-scrim">' +
           '<span class="tile-name">' + escapeHtml(ev.name) + '</span>' +
           (dateLabel(ev)
@@ -1781,7 +1809,7 @@
 
   function tileHtml(show, rowKey) {
     var style = sourceStyle(show.source);
-    var arranging = state.reordering && !!rowKey;
+    var arranging = !!rowKey && state.reorderRow === rowKey;
     var watcherIcon = show.watchers === "Just Me" ? ICON_ONE : ICON_TWO;
 
     var topLine = "";
@@ -2030,6 +2058,9 @@
     document.getElementById("releaseLabel").innerHTML = isUfc
       ? 'Event date <span class="hint">(optional)</span>'
       : 'Expected release <span class="hint">(optional)</span>';
+    document.getElementById("soonLabel").innerHTML = isUfc
+      ? "Hold under Coming Soon until the date"
+      : "Not out yet — mark as coming soon";
     document.getElementById("f-release").placeholder = isUfc
       ? "…or describe it, if the date isn't set"
       : "…or describe it, e.g. March 2027";
@@ -2221,12 +2252,12 @@
     }
   }
 
-  document.getElementById("toggleReorder").addEventListener("click", function () {
-    state.reordering = !state.reordering;
-    this.classList.toggle("on", state.reordering);
-    document.getElementById("reorderLabel").textContent = state.reordering ? "Done" : "Reorder";
-    document.getElementById("reorderHint").hidden = !state.reordering;
-    render();
+  Array.prototype.forEach.call(document.querySelectorAll("[data-reorder]"), function (btn) {
+    btn.addEventListener("click", function () {
+      var key = btn.getAttribute("data-reorder");
+      state.reorderRow = state.reorderRow === key ? null : key;
+      render();
+    });
   });
 
   document.getElementById("togglePotential").addEventListener("click", function () {
@@ -2265,7 +2296,7 @@
       : sourceSelect.value;
     var watchers = document.querySelector('input[name="watchers"]:checked').value;
     var isUfc = state.formType === "ufc";
-    var comingSoon = isUfc ? false : soonToggle.checked;
+    var comingSoon = soonToggle.checked;
     var potential = isUfc ? false : potentialToggle.checked;
 
     var data = {
@@ -2652,6 +2683,7 @@
     setImportOpen(false);
     importStatus.textContent = "";
     importStatus.className = "import-status";
+    setCardStatus("");
     wikiResults.innerHTML = "";
     pasteBox.value = "";
     var ev = currentEvent();
@@ -2699,6 +2731,7 @@
     document.getElementById("cardProgressFill").style.width = pct + "%";
     document.getElementById("cardProgressText").textContent =
       fights.length ? done + " of " + fights.length + " watched" : "—";
+    document.getElementById("refreshCard").hidden = fights.length === 0;
 
     if (!fights.length) {
       fightList.innerHTML =
@@ -2789,13 +2822,40 @@
 
     var byKey = {};
     existing.forEach(function (f) { byKey[fightKey(f)] = f; });
+    var incomingKeys = {};
+    incoming.forEach(function (f) { incomingKeys[fightKey(f)] = true; });
+
     var merged = incoming.map(function (f) {
       var prev = byKey[fightKey(f)];
       return prev ? Object.assign({}, f, { id: prev.id, watched: !!prev.watched }) : f;
     });
+
+    var added = incoming.filter(function (f) { return !byKey[fightKey(f)]; }).length;
+    var dropped = existing.filter(function (f) { return !incomingKeys[fightKey(f)]; }).length;
+
     saveFights(merged);
+
+    // Cards shuffle before an event, so say what actually changed.
+    var msg;
+    if (!existing.length) {
+      msg = "Loaded " + merged.length + " fight" + (merged.length === 1 ? "" : "s") + ".";
+    } else if (!added && !dropped) {
+      msg = "Card is already up to date.";
+    } else {
+      var bits = [];
+      if (added) bits.push(added + " added");
+      if (dropped) bits.push(dropped + " dropped");
+      msg = "Card updated — " + bits.join(", ") + ".";
+    }
+    setCardStatus(msg, "ok");
     importStatus.className = "import-status ok";
-    importStatus.textContent = "Loaded " + merged.length + " fight" + (merged.length === 1 ? "" : "s") + ".";
+    importStatus.textContent = msg;
+  }
+
+  function setCardStatus(msg, kind) {
+    var el = document.getElementById("cardStatus");
+    el.className = "import-status" + (kind ? " " + kind : "");
+    el.textContent = msg || "";
   }
 
   // ---------- Wikipedia ----------
@@ -2889,19 +2949,31 @@
   function loadFromWikipedia(title) {
     importStatus.className = "import-status";
     importStatus.textContent = "Fetching " + title + "…";
+    setCardStatus("Checking Wikipedia for changes…");
     wikiResults.innerHTML = "";
 
     wikiFetchCard(title).then(function (res) {
       if (!res.fights.length) {
         importStatus.className = "import-status error";
         importStatus.textContent = "Found the page but couldn't read a fight card from it — try pasting instead.";
+        setCardStatus("Couldn't read a card from that page.", "error");
         return;
       }
       importFights(res.fights, "merge");
 
+      var ev = currentEvent();
+
+      // Remember which page this card came from so it can be re-pulled in
+      // one tap when the card changes closer to the event.
+      if (ev && ev.wikiTitle !== title) {
+        ev.wikiTitle = title;
+        updateDoc(doc(db, "watchlist", ev.id), { wikiTitle: title }).catch(function (e) {
+          console.error(e);
+        });
+      }
+
       // Fill in the event date if it's still blank. Wikipedia writes it as
       // "October 4, 2025", so turn that into a real date where we can.
-      var ev = currentEvent();
       if (ev && res.date && !ev.dateISO && !ev.releaseDate) {
         var patch = { releaseDate: res.date };
         var parsed = new Date(res.date);
@@ -2919,8 +2991,23 @@
       console.error(err);
       importStatus.className = "import-status error";
       importStatus.textContent = "Couldn't reach Wikipedia — try again, or paste the card in below.";
+      setCardStatus("Couldn't reach Wikipedia — try again shortly.", "error");
     });
   }
+
+  // One-tap re-pull of the page this card came from. Without a remembered
+  // page, fall back to the search so the right event gets picked once.
+  document.getElementById("refreshCard").addEventListener("click", function () {
+    var ev = currentEvent();
+    if (!ev) return;
+    if (ev.wikiTitle) {
+      loadFromWikipedia(ev.wikiTitle);
+      return;
+    }
+    setImportOpen(true);
+    wikiQuery.value = ev.name;
+    document.getElementById("wikiSearchBtn").click();
+  });
 
   document.getElementById("wikiSearchBtn").addEventListener("click", function () {
     var q = wikiQuery.value.trim();
@@ -3037,10 +3124,13 @@
       });
     });
 
-    var names = due.map(function (s) { return s.name; });
-    var label = names.length === 1
-      ? names[0] + " is out — moved to your list."
-      : names.length + " shows are out — moved to your list.";
+    var label;
+    if (due.length === 1) {
+      label = due[0].name + " is out — moved to " +
+        (typeOf(due[0]) === "ufc" ? "UFC Events." : "your list.");
+    } else {
+      label = due.length + " things are out — moved across.";
+    }
     setTimeout(function () { alertInline(label); }, 400);
   }
 
