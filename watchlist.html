@@ -702,7 +702,10 @@
 
   /* ---------- UFC tiles ---------- */
 
-  .ufc-tile { display: block; }
+  /* A tile you tap into (episodes or a fight card), with a pencil for edit. */
+  .tap-tile { display: block; }
+  /* Shift the status badge clear of the pencil button. */
+  .tap-tile .tile-soon, .tap-tile .tile-maybe { right: 42px; }
 
   .tile-edit {
     position: absolute;
@@ -724,9 +727,9 @@
   .tile-edit:hover { background: var(--accent); color: #fff; }
   .tile-edit svg { width: 14px; height: 14px; }
 
-  .ufc-tile .tile-name { -webkit-line-clamp: 2; margin-bottom: 3px; }
-  .ufc-tile .tile-scrim { padding: 8px 9px 7px; }
-  .ufc-tile .tile-meta.headline {
+  .tap-tile .tile-name { -webkit-line-clamp: 2; margin-bottom: 3px; }
+  .tap-tile .tile-scrim { padding: 8px 9px 7px; }
+  .tap-tile .tile-meta.headline {
     color: rgba(245,245,247,0.88);
     font-weight: 600;
     display: block;
@@ -850,6 +853,104 @@
     font-size: 13.5px;
     text-align: center;
   }
+
+  /* ---------- episodes ---------- */
+
+  .season-block { margin-bottom: 18px; }
+  .season-block:last-of-type { margin-bottom: 8px; }
+
+  .season-head {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 9px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .season-title {
+    font-family: var(--font-display);
+    font-size: 16px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .season-tally { font-size: 11.5px; color: var(--text-faint); font-weight: 600; flex: 1; }
+  .season-head .btn-tiny { flex-shrink: 0; }
+
+  .btn-tiny {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 9px;
+    cursor: pointer;
+  }
+  .btn-tiny:hover { color: var(--text); border-color: var(--text-faint); }
+  .btn-tiny.danger:hover { color: var(--accent-hover); border-color: var(--accent); }
+
+  /* Auto-fill grid rather than wrapping flex, so a part-full last row still
+     lines up with the one above instead of leaving a ragged gap. */
+  .ep-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(38px, 1fr));
+    gap: 6px;
+  }
+
+  .ep-chip {
+    height: 40px;
+    border-radius: 9px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-dim);
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  .ep-chip:hover { border-color: var(--text-faint); color: var(--text); }
+  .ep-chip.done {
+    background: var(--ok);
+    border-color: var(--ok);
+    color: #06281a;
+    text-decoration: line-through;
+    text-decoration-thickness: 1.5px;
+  }
+
+  .add-season {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 9px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+    padding: 13px;
+    margin-top: 14px;
+  }
+  .add-season label {
+    display: block;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .add-season input {
+    width: 74px;
+    margin-top: 5px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 14px;
+    border-radius: var(--radius-sm);
+    padding: 9px 10px;
+  }
+  .add-season .btn-small { margin-left: auto; }
 
   /* ---------- card import panel ---------- */
 
@@ -1082,16 +1183,6 @@
         </div>
       </div>
 
-      <div class="field show-only" id="seasonField">
-        <label for="f-season">Season <span class="hint">(optional)</span></label>
-        <input type="text" id="f-season" placeholder="e.g. Season 2">
-      </div>
-
-      <div class="field show-only" id="episodeField">
-        <label for="f-episode">Episode <span class="hint">(optional)</span></label>
-        <input type="text" id="f-episode" placeholder="e.g. Ep 4 of 8">
-      </div>
-
       <div class="field">
         <label>Who's watching</label>
         <div class="radio-row">
@@ -1153,6 +1244,40 @@
         </div>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Episodes -->
+<div class="modal-backdrop" id="epBackdrop" hidden>
+  <div class="modal fight-modal" role="dialog" aria-modal="true" aria-labelledby="epTitle" tabindex="-1">
+    <div class="fight-head">
+      <h2 id="epTitle">Episodes</h2>
+      <p class="sub" id="epSub"></p>
+      <div class="progress-line">
+        <span class="progress-track"><i id="epProgressFill" style="width:0%"></i></span>
+        <span class="progress-text" id="epProgressText"></span>
+      </div>
+    </div>
+
+    <div id="seasonList"></div>
+
+    <div class="add-season">
+      <div>
+        <label for="newSeasonNum">Season</label>
+        <input type="number" id="newSeasonNum" min="1" max="99" inputmode="numeric">
+      </div>
+      <div>
+        <label for="newSeasonEps">Episodes</label>
+        <input type="number" id="newSeasonEps" min="1" max="200" inputmode="numeric">
+      </div>
+      <button type="button" class="btn-small" id="addSeasonBtn">Add season</button>
+    </div>
+
+    <div class="modal-actions fight-actions">
+      <div class="right-actions">
+        <button type="button" class="btn-primary" id="epDone">Done</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1272,11 +1397,57 @@
     showUfc: true,
     showPotential: true,
     formType: "show",
-    cardId: null
+    cardId: null,
+    epId: null
   };
 
   function typeOf(item) { return item.type === "ufc" ? "ufc" : "show"; }
   function fightsOf(item) { return Array.isArray(item.fights) ? item.fights : []; }
+
+  // ---------- seasons ----------
+  // Kept as a map keyed by season number — { "1": { episodes, watched:[…] } } —
+  // rather than an array of seasons, so the per-season watched list never ends
+  // up as an array directly inside another array, which Firestore won't store.
+
+  function seasonsOf(item) {
+    var raw = item.seasons;
+    if (!raw || typeof raw !== "object") return [];
+    return Object.keys(raw).map(function (k) {
+      var s = raw[k] || {};
+      return {
+        num: Number(k),
+        episodes: Math.max(1, Number(s.episodes) || 1),
+        watched: Array.isArray(s.watched) ? s.watched.map(Number) : []
+      };
+    }).filter(function (s) {
+      return !isNaN(s.num) && s.num > 0;
+    }).sort(function (a, b) { return a.num - b.num; });
+  }
+
+  function seasonsToMap(list) {
+    var out = {};
+    list.forEach(function (s) {
+      out[String(s.num)] = {
+        episodes: s.episodes,
+        watched: s.watched.slice().sort(function (a, b) { return a - b; })
+      };
+    });
+    return out;
+  }
+
+  // Totals plus the first episode still to watch, in order.
+  function showProgress(item) {
+    var seasons = seasonsOf(item);
+    var total = 0, done = 0, next = null;
+    seasons.forEach(function (s) {
+      total += s.episodes;
+      for (var e = 1; e <= s.episodes; e++) {
+        if (s.watched.indexOf(e) !== -1) done++;
+        else if (!next) next = { season: s.num, ep: e };
+      }
+    });
+    return { seasons: seasons, total: total, done: done, next: next };
+  }
 
   // ---------- dates ----------
   // Stored as plain "YYYY-MM-DD" so it sorts as a string and never picks up a
@@ -1437,6 +1608,16 @@
       });
     });
 
+    Array.prototype.forEach.call(document.querySelectorAll("[data-eps]"), function (el) {
+      el.addEventListener("click", function () { openEpisodes(el.getAttribute("data-eps")); });
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openEpisodes(el.getAttribute("data-eps"));
+        }
+      });
+    });
+
     Array.prototype.forEach.call(document.querySelectorAll("[data-add]"), function (el) {
       el.addEventListener("click", function () { openModal(null, el.getAttribute("data-add")); });
     });
@@ -1445,6 +1626,7 @@
 
     // Keep any open panel in step with live Firestore updates.
     if (state.cardId) renderCard();
+    if (state.epId) renderEpisodes();
     if (!archiveBackdrop.hidden) renderArchive();
   }
 
@@ -1496,7 +1678,7 @@
       : '';
 
     return (
-      '<div class="tile ufc-tile" role="button" tabindex="0" data-card="' + ev.id + '" ' +
+      '<div class="tile tap-tile" role="button" tabindex="0" data-card="' + ev.id + '" ' +
         (ev.posterUrl ? 'data-poster="' + escapeHtml(ev.posterUrl) + '" ' : '') +
         'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';" ' +
         'aria-label="' + escapeHtml(ev.name) + ', open fight card">' +
@@ -1528,27 +1710,44 @@
           (isPast(show) ? "" : "Expected ") + escapeHtml(label) + "</span>";
       }
     } else {
-      var parts = [];
-      if (show.season) parts.push(escapeHtml(show.season));
-      if (show.episode) parts.push(escapeHtml(show.episode));
-      if (parts.length) topLine = '<span class="tile-meta">' + parts.join('<span class="dot">&middot;</span>') + '</span>';
+      // Legacy free-text season/episode still shows until seasons are set up.
+      var prog = showProgress(show);
+      if (prog.total) {
+        topLine = '<span class="tile-meta headline">' +
+          (prog.next ? "S" + prog.next.season + " E" + prog.next.ep : "All watched") +
+          "</span>";
+      } else {
+        var parts = [];
+        if (show.season) parts.push(escapeHtml(show.season));
+        if (show.episode) parts.push(escapeHtml(show.episode));
+        if (parts.length) topLine = '<span class="tile-meta">' + parts.join('<span class="dot">&middot;</span>') + '</span>';
+      }
     }
 
+    var progress = showProgress(show);
+    var foot = progress.total
+      ? '<span class="progress-track"><i style="width:' +
+          Math.round((progress.done / progress.total) * 100) + '%"></i></span>' +
+        '<span class="count-text">' + progress.done + "/" + progress.total + "</span>"
+      : escapeHtml(show.watchers);
+
     return (
-      '<button type="button" class="tile" data-tile="' + show.id + '" ' +
+      '<div class="tile tap-tile" role="button" tabindex="0" data-eps="' + show.id + '" ' +
         (show.posterUrl ? 'data-poster="' + escapeHtml(show.posterUrl) + '" ' : '') +
         'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';" ' +
-        'aria-label="' + escapeHtml(show.name) + ', tap to edit">' +
+        'aria-label="' + escapeHtml(show.name) + ', open episodes">' +
         '<span class="tile-source">' + escapeHtml(show.source) + '</span>' +
+        '<button type="button" class="tile-edit" data-tile="' + show.id + '" ' +
+          'aria-label="Edit ' + escapeHtml(show.name) + '">' + ICON_PENCIL + "</button>" +
         (show.potential
           ? '<span class="tile-maybe">Maybe</span>'
           : (show.comingSoon ? '<span class="tile-soon">Soon</span>' : '')) +
         '<span class="tile-scrim">' +
           '<span class="tile-name">' + escapeHtml(show.name) + '</span>' +
           topLine +
-          '<span class="tile-meta">' + watcherIcon + escapeHtml(show.watchers) + '</span>' +
+          '<span class="tile-meta ufc-foot">' + watcherIcon + foot + '</span>' +
         '</span>' +
-      '</button>'
+      '</div>'
     );
   }
 
@@ -1587,11 +1786,12 @@
       clearTimeout(suppressTimer);
       return;
     }
-    if (!backdrop.hidden || !cardBackdrop.hidden || !archiveBackdrop.hidden) {
+    if (!backdrop.hidden || !cardBackdrop.hidden || !archiveBackdrop.hidden || !epBackdrop.hidden) {
       historyPushed = false;
       hideModalDom();
       hideCardDom();
       hideArchiveDom();
+      hideEpDom();
     }
   });
 
@@ -1782,8 +1982,6 @@
         document.getElementById("f-source-custom").value = show.source;
       }
       document.getElementById("f-poster").value = show.posterUrl || "";
-      document.getElementById("f-season").value = show.season || "";
-      document.getElementById("f-episode").value = show.episode || "";
       document.getElementById(show.watchers === "Just Me" ? "w-me" : "w-us").checked = true;
       potentialToggle.checked = !!show.potential;
       soonToggle.checked = !!show.comingSoon;
@@ -1942,8 +2140,6 @@
       name: name,
       source: source,
       posterUrl: document.getElementById("f-poster").value.trim(),
-      season: isUfc ? "" : document.getElementById("f-season").value.trim(),
-      episode: isUfc ? "" : document.getElementById("f-episode").value.trim(),
       watchers: watchers,
       comingSoon: comingSoon,
       dateISO: (isUfc || comingSoon) ? document.getElementById("f-date").value : "",
@@ -1985,6 +2181,187 @@
         submitBtn.disabled = false;
         formError.textContent = "Couldn't save — check your connection and try again.";
       });
+  });
+
+  // ---------- episodes ----------
+
+  var epBackdrop = document.getElementById("epBackdrop");
+  var epModal = epBackdrop.querySelector(".modal");
+  var seasonList = document.getElementById("seasonList");
+  var newSeasonNum = document.getElementById("newSeasonNum");
+  var newSeasonEps = document.getElementById("newSeasonEps");
+  var dropConfirmNum = null;
+
+  function currentShow() {
+    return state.shows.filter(function (s) { return s.id === state.epId; })[0];
+  }
+
+  function openEpisodes(id) {
+    state.epId = id;
+    dropConfirmNum = null;
+    claimBackStep();
+    epBackdrop.hidden = false;
+    renderEpisodes();
+    epModal.focus();
+  }
+
+  function hideEpDom() {
+    epBackdrop.hidden = true;
+    state.epId = null;
+  }
+
+  function closeEpisodes() {
+    hideEpDom();
+    releaseBackStep();
+  }
+
+  function saveSeasons(list) {
+    var id = state.epId;
+    if (!id) return;
+    var map = seasonsToMap(list);
+    var show = currentShow();
+    if (show) { show.seasons = map; renderEpisodes(); render(); }
+    updateDoc(doc(db, "watchlist", id), { seasons: map }).catch(function (err) {
+      console.error(err);
+      alertInline("Couldn't save that — check your connection.");
+    });
+  }
+
+  function renderEpisodes() {
+    var show = currentShow();
+    if (!show) { closeEpisodes(); return; }
+
+    var prog = showProgress(show);
+    var pct = prog.total ? Math.round((prog.done / prog.total) * 100) : 0;
+
+    document.getElementById("epTitle").textContent = show.name;
+    document.getElementById("epSub").textContent = prog.total
+      ? (prog.next ? "Up next: Season " + prog.next.season + ", episode " + prog.next.ep : "All caught up")
+      : "No seasons set up yet";
+    document.getElementById("epProgressFill").style.width = pct + "%";
+    document.getElementById("epProgressText").textContent =
+      prog.total ? prog.done + " of " + prog.total + " watched" : "—";
+
+    // Default the add-season row to the next season, matching the last one's
+    // episode count since most runs are a similar length.
+    var last = prog.seasons[prog.seasons.length - 1];
+    newSeasonNum.value = last ? last.num + 1 : 1;
+    if (!newSeasonEps.value || document.activeElement !== newSeasonEps) {
+      newSeasonEps.value = last ? last.episodes : 8;
+    }
+
+    seasonList.innerHTML = prog.seasons.map(function (s) {
+      var done = s.watched.filter(function (e) { return e >= 1 && e <= s.episodes; }).length;
+      var chips = "";
+      for (var e = 1; e <= s.episodes; e++) {
+        var isDone = s.watched.indexOf(e) !== -1;
+        chips += '<button type="button" class="ep-chip' + (isDone ? " done" : "") + '" ' +
+          'data-ep="' + s.num + ":" + e + '" aria-pressed="' + (isDone ? "true" : "false") + '">' +
+          e + "</button>";
+      }
+      return '<div class="season-block">' +
+        '<div class="season-head">' +
+          '<span class="season-title">Season ' + s.num + "</span>" +
+          '<span class="season-tally">' + done + " / " + s.episodes + "</span>" +
+          (dropConfirmNum === s.num
+            ? '<button type="button" class="btn-tiny" data-drop-no="1">Keep</button>' +
+              '<button type="button" class="btn-tiny danger" data-drop-yes="' + s.num + '">Remove it</button>'
+            : '<button type="button" class="btn-tiny" data-all="' + s.num + '">' +
+                (done === s.episodes ? "Clear" : "All") + "</button>" +
+              '<button type="button" class="btn-tiny" data-plus="' + s.num + '">+ Ep</button>' +
+              '<button type="button" class="btn-tiny danger" data-drop="' + s.num + '">Remove</button>') +
+        "</div>" +
+        '<div class="ep-grid">' + chips + "</div>" +
+      "</div>";
+    }).join("");
+
+    Array.prototype.forEach.call(seasonList.querySelectorAll("[data-ep]"), function (el) {
+      el.addEventListener("click", function () {
+        var bits = el.getAttribute("data-ep").split(":");
+        toggleEpisode(Number(bits[0]), Number(bits[1]));
+      });
+    });
+    Array.prototype.forEach.call(seasonList.querySelectorAll("[data-all]"), function (el) {
+      el.addEventListener("click", function () { toggleWholeSeason(Number(el.getAttribute("data-all"))); });
+    });
+    Array.prototype.forEach.call(seasonList.querySelectorAll("[data-plus]"), function (el) {
+      el.addEventListener("click", function () { addEpisode(Number(el.getAttribute("data-plus"))); });
+    });
+    Array.prototype.forEach.call(seasonList.querySelectorAll("[data-drop]"), function (el) {
+      el.addEventListener("click", function () {
+        dropConfirmNum = Number(el.getAttribute("data-drop"));
+        renderEpisodes();
+      });
+    });
+    Array.prototype.forEach.call(seasonList.querySelectorAll("[data-drop-no]"), function (el) {
+      el.addEventListener("click", function () { dropConfirmNum = null; renderEpisodes(); });
+    });
+    Array.prototype.forEach.call(seasonList.querySelectorAll("[data-drop-yes]"), function (el) {
+      el.addEventListener("click", function () {
+        var num = Number(el.getAttribute("data-drop-yes"));
+        dropConfirmNum = null;
+        dropSeason(num);
+      });
+    });
+  }
+
+  function toggleEpisode(num, ep) {
+    var show = currentShow();
+    if (!show) return;
+    saveSeasons(seasonsOf(show).map(function (s) {
+      if (s.num !== num) return s;
+      var i = s.watched.indexOf(ep);
+      var watched = s.watched.slice();
+      if (i === -1) watched.push(ep); else watched.splice(i, 1);
+      return { num: s.num, episodes: s.episodes, watched: watched };
+    }));
+  }
+
+  function toggleWholeSeason(num) {
+    var show = currentShow();
+    if (!show) return;
+    saveSeasons(seasonsOf(show).map(function (s) {
+      if (s.num !== num) return s;
+      var full = s.watched.filter(function (e) { return e >= 1 && e <= s.episodes; }).length === s.episodes;
+      var watched = [];
+      if (!full) for (var e = 1; e <= s.episodes; e++) watched.push(e);
+      return { num: s.num, episodes: s.episodes, watched: watched };
+    }));
+  }
+
+  // A season that turns out to be longer than expected — bump it by one
+  // rather than making you retype the whole thing.
+  function addEpisode(num) {
+    var show = currentShow();
+    if (!show) return;
+    saveSeasons(seasonsOf(show).map(function (s) {
+      return s.num === num
+        ? { num: s.num, episodes: Math.min(200, s.episodes + 1), watched: s.watched }
+        : s;
+    }));
+  }
+
+  function dropSeason(num) {
+    var show = currentShow();
+    if (!show) return;
+    saveSeasons(seasonsOf(show).filter(function (s) { return s.num !== num; }));
+  }
+
+  document.getElementById("addSeasonBtn").addEventListener("click", function () {
+    var show = currentShow();
+    if (!show) return;
+    var num = Math.max(1, Math.min(99, Number(newSeasonNum.value) || 1));
+    var eps = Math.max(1, Math.min(200, Number(newSeasonEps.value) || 1));
+    var list = seasonsOf(show).filter(function (s) { return s.num !== num; });
+    list.push({ num: num, episodes: eps, watched: [] });
+    list.sort(function (a, b) { return a.num - b.num; });
+    saveSeasons(list);
+  });
+
+  document.getElementById("epDone").addEventListener("click", closeEpisodes);
+  epBackdrop.addEventListener("click", function (e) { if (e.target === epBackdrop) closeEpisodes(); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !epBackdrop.hidden) closeEpisodes();
   });
 
   // ---------- watched archive ----------
