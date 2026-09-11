@@ -37,6 +37,8 @@
     --gold-ink: #2a1d02;
     --ufc: #d8d8e0;
     --ok: #4ec98a;
+    --maybe: #8b7cf0;
+    --maybe-ink: #12082e;
     --radius-lg: 20px;
     --radius-md: 14px;
     --radius-sm: 9px;
@@ -95,7 +97,7 @@
   .filters-row {
     display: flex;
     flex-wrap: nowrap;
-    gap: 8px;
+    gap: 6px;
     align-items: center;
     margin: 14px 0 20px;
     overflow-x: auto;
@@ -120,7 +122,7 @@
     font-family: var(--font-body);
     font-weight: 600;
     font-size: 12px;
-    padding: 6px 11px;
+    padding: 6px 9px;
     border-radius: 999px;
     cursor: pointer;
     white-space: nowrap;
@@ -193,6 +195,15 @@
     width: 9px;
     height: 9px;
     background: var(--ufc);
+    border-radius: 2px;
+    margin-right: 9px;
+  }
+  .row.potential .row-title h2::before {
+    content: '';
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    background: var(--maybe);
     border-radius: 2px;
     margin-right: 9px;
   }
@@ -294,6 +305,26 @@
     color: var(--gold-ink);
   }
 
+  .tile-maybe {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--maybe);
+    color: #fff;
+  }
+
+  .toggle-pill.maybe-pill.active {
+    border-color: var(--maybe);
+    background: rgba(139,124,240,0.18);
+    color: var(--text);
+  }
+
   .tile.add-tile {
     background: transparent;
     border: 1.5px dashed var(--border);
@@ -368,6 +399,52 @@
     margin-bottom: 6px;
   }
   .field .hint { font-weight: 400; color: var(--text-faint); }
+
+  .poster-results {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    margin-top: 10px;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .poster-results:empty { display: none; }
+  .poster-results::-webkit-scrollbar { height: 5px; }
+  .poster-results::-webkit-scrollbar-thumb { background: var(--surface-2); border-radius: 3px; }
+
+  .poster-option {
+    flex: 0 0 78px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 5px;
+    cursor: pointer;
+    font-family: var(--font-body);
+    color: var(--text-dim);
+    text-align: center;
+  }
+  .poster-option:hover { border-color: var(--accent); }
+  .poster-option img {
+    width: 100%;
+    height: 96px;
+    object-fit: cover;
+    border-radius: 5px;
+    display: block;
+    background: var(--surface-2);
+  }
+  .poster-option span {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 1.25;
+    margin-top: 5px;
+  }
+
+  /* A class-level display beats the UA rule for [hidden], so say it here or
+     the box keeps reserving its height while "hidden". */
+  .poster-preview[hidden] { display: none; }
 
   .poster-preview {
     margin-top: 8px;
@@ -807,6 +884,12 @@
     .tile { flex: 1 1 calc(50% - 7px); max-width: calc(50% - 7px); }
   }
 
+  /* On a really narrow phone six pills can't share a line — wrap onto two
+     rows rather than hiding some behind a scroll the eye can't see. */
+  @media (max-width: 380px) {
+    .filters-row { flex-wrap: wrap; overflow-x: visible; row-gap: 8px; }
+  }
+
   @media (max-width: 480px) {
     body { padding: 22px 14px 80px; }
     .tile { flex: 1 1 calc(50% - 6px); max-width: calc(50% - 6px); }
@@ -830,10 +913,11 @@
     <div class="filter-group" role="group" aria-label="Who's watching">
       <button class="filter-pill active" data-who="all" type="button">All</button>
       <button class="filter-pill" data-who="Just Me" type="button">Just Me</button>
-      <button class="filter-pill" data-who="Me &amp; Emma" type="button">Me &amp; Emma</button>
+      <button class="filter-pill" data-who="Me &amp; Emma" type="button">Us</button>
     </div>
     <button class="filter-pill toggle-pill active" id="toggleComingSoon" type="button" aria-pressed="true">Soon</button>
     <button class="filter-pill toggle-pill active" id="toggleUfc" type="button" aria-pressed="true">UFC</button>
+    <button class="filter-pill toggle-pill maybe-pill active" id="togglePotential" type="button" aria-pressed="true">Maybe</button>
   </div>
 
   <div class="stat-line" id="statLine">Loading your list&hellip;</div>
@@ -851,6 +935,11 @@
   <div class="row coming" id="rowComing" hidden>
     <div class="row-title"><h2>Coming Soon</h2><span class="count" id="comingCount"></span></div>
     <div class="row-scroll" id="comingScroll"></div>
+  </div>
+
+  <div class="row potential" id="rowPotential" hidden>
+    <div class="row-title"><h2>Potential Watches</h2><span class="count" id="potentialCount"></span></div>
+    <div class="row-scroll" id="potentialScroll"></div>
   </div>
 
 </div>
@@ -896,8 +985,13 @@
       </div>
 
       <div class="field">
-        <label for="f-poster">Poster image URL <span class="hint">(optional)</span></label>
-        <input type="text" id="f-poster" placeholder="Paste a link to a poster image">
+        <label for="f-poster">Poster image <span class="hint">(optional)</span></label>
+        <div class="search-line">
+          <input type="text" id="f-poster" placeholder="Paste a link, or search &rarr;">
+          <button type="button" class="btn-small" id="findPosterBtn">Find</button>
+        </div>
+        <p class="import-status" id="posterSearchStatus"></p>
+        <div class="poster-results" id="posterResults"></div>
         <div class="poster-preview" id="posterPreview" hidden>
           <img id="posterPreviewImg" alt="">
           <span id="posterPreviewMsg"></span>
@@ -931,6 +1025,16 @@
               Me &amp; Emma
             </label>
           </div>
+        </div>
+      </div>
+
+      <div class="field show-only" id="potentialField">
+        <div class="toggle-row">
+          <label class="toggle-label" for="f-potential">Not decided yet &mdash; keep it as a maybe</label>
+          <label class="switch" for="f-potential">
+            <input type="checkbox" id="f-potential">
+            <span class="track"></span>
+          </label>
         </div>
       </div>
 
@@ -1067,6 +1171,7 @@
     filterWho: "all",
     showComingSoon: true,
     showUfc: true,
+    showPotential: true,
     formType: "show",
     cardId: null
   };
@@ -1095,8 +1200,11 @@
     var ufcEvents = state.showUfc ? visible.filter(function (s) { return typeOf(s) === "ufc"; }) : [];
     var tvShows = visible.filter(function (s) { return typeOf(s) === "show"; });
 
-    var comingShows = state.showComingSoon ? tvShows.filter(function (s) { return s.comingSoon; }) : [];
-    var readyShows = tvShows.filter(function (s) { return !s.comingSoon; });
+    // Three buckets, in priority order: undecided, not out yet, on the list.
+    var potentialShows = state.showPotential ? tvShows.filter(function (s) { return s.potential; }) : [];
+    var decided = tvShows.filter(function (s) { return !s.potential; });
+    var comingShows = state.showComingSoon ? decided.filter(function (s) { return s.comingSoon; }) : [];
+    var readyShows = decided.filter(function (s) { return !s.comingSoon; });
 
     var totalUfc = visible.filter(function (s) { return typeOf(s) === "ufc"; }).length;
     var bits = [];
@@ -1121,6 +1229,11 @@
 
     document.getElementById("comingCount").textContent = comingShows.length ? comingShows.length : "";
     document.getElementById("comingScroll").innerHTML = comingShows.map(tileHtml).join("");
+
+    var rowPotential = document.getElementById("rowPotential");
+    rowPotential.hidden = potentialShows.length === 0;
+    document.getElementById("potentialCount").textContent = potentialShows.length ? potentialShows.length : "";
+    document.getElementById("potentialScroll").innerHTML = potentialShows.map(tileHtml).join("");
 
     document.getElementById("readyCount").textContent = readyShows.length ? readyShows.length : "";
     var readyHtml = readyShows.map(tileHtml).join("") + addTileHtml("show");
@@ -1245,7 +1358,9 @@
         'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';" ' +
         'aria-label="' + escapeHtml(show.name) + ', tap to edit">' +
         '<span class="tile-source">' + escapeHtml(show.source) + '</span>' +
-        (show.comingSoon ? '<span class="tile-soon">Soon</span>' : '') +
+        (show.potential
+          ? '<span class="tile-maybe">Maybe</span>'
+          : (show.comingSoon ? '<span class="tile-soon">Soon</span>' : '')) +
         '<span class="tile-scrim">' +
           '<span class="tile-name">' + escapeHtml(show.name) + '</span>' +
           topLine +
@@ -1305,6 +1420,7 @@
   var customSourceField = document.getElementById("customSourceField");
   var releaseField = document.getElementById("releaseField");
   var soonToggle = document.getElementById("f-soon");
+  var potentialToggle = document.getElementById("f-potential");
   var modalTitle = document.getElementById("modalTitle");
   var modalSub = document.getElementById("modalSub");
   var submitBtn = document.getElementById("submitBtn");
@@ -1342,6 +1458,82 @@
   }
 
   posterInput.addEventListener("blur", checkPosterPreview);
+
+  // ---------- poster search ----------
+  // Wikipedia's PageImages data, over the same keyless CORS API as the fight
+  // cards. Its images live on upload.wikimedia.org, which — unlike most image
+  // hosts — is happy to be hotlinked.
+
+  var posterResults = document.getElementById("posterResults");
+  var posterSearchStatus = document.getElementById("posterSearchStatus");
+  var posterSearchToken = 0;
+
+  function clearPosterSearch() {
+    posterResults.innerHTML = "";
+    posterSearchStatus.textContent = "";
+    posterSearchStatus.className = "import-status";
+  }
+
+  function findPosters() {
+    var q = document.getElementById("f-name").value.trim();
+    if (!q) {
+      posterResults.innerHTML = "";
+      posterSearchStatus.className = "import-status error";
+      posterSearchStatus.textContent = "Type the name first, then tap Find.";
+      return;
+    }
+
+    posterSearchToken++;
+    var token = posterSearchToken;
+    posterResults.innerHTML = "";
+    posterSearchStatus.className = "import-status";
+    posterSearchStatus.textContent = "Searching Wikipedia…";
+
+    var url = WIKI_API +
+      "?action=query&format=json&formatversion=2&origin=*" +
+      "&generator=search&gsrnamespace=0&gsrlimit=8&gsrsearch=" + encodeURIComponent(q) +
+      "&prop=pageimages&piprop=thumbnail%7Coriginal&pithumbsize=240&pilimit=20";
+
+    fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+      if (token !== posterSearchToken) return;
+
+      var pages = (d.query && d.query.pages) || [];
+      var withImages = pages.filter(function (p) { return p.thumbnail || p.original; });
+      // Search rank lives in `index`; the pages array isn't ordered by it.
+      withImages.sort(function (a, b) { return (a.index || 99) - (b.index || 99); });
+
+      if (!withImages.length) {
+        posterSearchStatus.className = "import-status error";
+        posterSearchStatus.textContent = "No images found — try the full title, or paste a link.";
+        return;
+      }
+
+      posterSearchStatus.textContent = "Tap one to use it:";
+      posterResults.innerHTML = withImages.map(function (p) {
+        var thumb = (p.thumbnail && p.thumbnail.source) || p.original.source;
+        var full = (p.original && p.original.source) || p.thumbnail.source;
+        return '<button type="button" class="poster-option" data-pick="' + escapeHtml(full) + '">' +
+          '<img src="' + escapeHtml(thumb) + '" alt="" loading="lazy">' +
+          "<span>" + escapeHtml(p.title) + "</span>" +
+        "</button>";
+      }).join("");
+
+      Array.prototype.forEach.call(posterResults.querySelectorAll("[data-pick]"), function (el) {
+        el.addEventListener("click", function () {
+          posterInput.value = el.getAttribute("data-pick");
+          clearPosterSearch();
+          checkPosterPreview();
+        });
+      });
+    }).catch(function (err) {
+      if (token !== posterSearchToken) return;
+      console.error(err);
+      posterSearchStatus.className = "import-status error";
+      posterSearchStatus.textContent = "Couldn't reach Wikipedia — paste a link instead.";
+    });
+  }
+
+  document.getElementById("findPosterBtn").addEventListener("click", findPosters);
 
   // A UFC event reuses every field a show has except season/episode, and its
   // date is always shown (an event always has one) rather than hanging off the
@@ -1387,6 +1579,7 @@
     customSourceField.hidden = true;
     releaseField.hidden = true;
     formError.textContent = "";
+    clearPosterSearch();
 
     if (id) {
       var show = state.shows.filter(function (s) { return s.id === id; })[0];
@@ -1409,6 +1602,7 @@
       document.getElementById("f-season").value = show.season || "";
       document.getElementById("f-episode").value = show.episode || "";
       document.getElementById(show.watchers === "Just Me" ? "w-me" : "w-us").checked = true;
+      potentialToggle.checked = !!show.potential;
       soonToggle.checked = !!show.comingSoon;
       releaseField.hidden = isUfc ? false : !show.comingSoon;
       document.getElementById("f-release").value = show.releaseDate || "";
@@ -1446,6 +1640,7 @@
     customSourceField.hidden = true;
     releaseField.hidden = true;
     formError.textContent = "";
+    clearPosterSearch();
   }
 
   function closeModal() {
@@ -1513,6 +1708,13 @@
     render();
   });
 
+  document.getElementById("togglePotential").addEventListener("click", function () {
+    state.showPotential = !state.showPotential;
+    this.classList.toggle("active", state.showPotential);
+    this.setAttribute("aria-pressed", String(state.showPotential));
+    render();
+  });
+
   document.getElementById("toggleUfc").addEventListener("click", function () {
     state.showUfc = !state.showUfc;
     this.classList.toggle("active", state.showUfc);
@@ -1543,9 +1745,11 @@
     var watchers = document.querySelector('input[name="watchers"]:checked').value;
     var isUfc = state.formType === "ufc";
     var comingSoon = isUfc ? false : soonToggle.checked;
+    var potential = isUfc ? false : potentialToggle.checked;
 
     var data = {
       type: isUfc ? "ufc" : "show",
+      potential: potential,
       name: name,
       source: source,
       posterUrl: document.getElementById("f-poster").value.trim(),
