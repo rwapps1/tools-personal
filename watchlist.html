@@ -838,14 +838,14 @@
 
   <div class="stat-line" id="statLine">Loading your list&hellip;</div>
 
-  <div class="row ufc" id="rowUfc" hidden>
-    <div class="row-title"><h2>Fight Nights</h2><span class="count" id="ufcCount"></span></div>
-    <div class="row-scroll" id="ufcScroll"></div>
-  </div>
-
   <div class="row ready" id="rowReady" hidden>
     <div class="row-title"><h2>On The List</h2><span class="count" id="readyCount"></span></div>
     <div class="row-scroll" id="readyScroll"></div>
+  </div>
+
+  <div class="row ufc" id="rowUfc" hidden>
+    <div class="row-title"><h2>Fight Nights</h2><span class="count" id="ufcCount"></span></div>
+    <div class="row-scroll" id="ufcScroll"></div>
   </div>
 
   <div class="row coming" id="rowComing" hidden>
@@ -1255,6 +1255,48 @@
     );
   }
 
+  // ---------- hardware back button ----------
+  // Without this, Android's back button leaves the site entirely while a
+  // panel is open. Opening a panel pushes a history entry so back closes the
+  // panel instead; with nothing open, back behaves normally and takes you
+  // back to the hub.
+
+  var historyPushed = false;
+  var suppressPop = false;
+  var suppressTimer = null;
+
+  function claimBackStep() {
+    if (historyPushed) return;
+    historyPushed = true;
+    try { history.pushState({ wlOverlay: true }, ""); }
+    catch (e) { historyPushed = false; }
+  }
+
+  function releaseBackStep() {
+    if (!historyPushed) return;
+    historyPushed = false;
+    suppressPop = true;
+    clearTimeout(suppressTimer);
+    // If popstate never arrives, disarm the guard — leaving it set would
+    // swallow the next genuine back press.
+    suppressTimer = setTimeout(function () { suppressPop = false; }, 250);
+    try { history.back(); }
+    catch (e) { suppressPop = false; }
+  }
+
+  window.addEventListener("popstate", function () {
+    if (suppressPop) {
+      suppressPop = false;
+      clearTimeout(suppressTimer);
+      return;
+    }
+    if (!backdrop.hidden || !cardBackdrop.hidden) {
+      historyPushed = false;
+      hideModalDom();
+      hideCardDom();
+    }
+  });
+
   // ---------- modal ----------
   var backdrop = document.getElementById("modalBackdrop");
   var modal = document.querySelector(".modal");
@@ -1384,6 +1426,7 @@
 
     checkPosterPreview();
     renderLeftActions();
+    claimBackStep();
     backdrop.hidden = false;
 
     // Adding: jump straight into typing. Editing: land focus on the modal
@@ -1395,7 +1438,7 @@
     }
   }
 
-  function closeModal() {
+  function hideModalDom() {
     backdrop.hidden = true;
     state.editingId = null;
     state.confirmingDelete = false;
@@ -1403,6 +1446,11 @@
     customSourceField.hidden = true;
     releaseField.hidden = true;
     formError.textContent = "";
+  }
+
+  function closeModal() {
+    hideModalDom();
+    releaseBackStep();
   }
 
   function renderLeftActions() {
@@ -1527,11 +1575,14 @@
       .then(function (ref) {
         state.saving = false;
         submitBtn.disabled = false;
-        closeModal();
-        // A new event is no use without its card — go straight there.
+        // A new event is no use without its card — go straight there, keeping
+        // the single back step rather than releasing and re-claiming it.
         if (wasNew && isUfc && ref && ref.id) {
+          hideModalDom();
           state.shows = state.shows.concat([Object.assign({ id: ref.id }, data)]);
           openCard(ref.id);
+        } else {
+          closeModal();
         }
       })
       .catch(function (err) {
@@ -1584,6 +1635,7 @@
     pasteBox.value = "";
     var ev = currentEvent();
     wikiQuery.value = ev ? ev.name : "";
+    claimBackStep();
     cardBackdrop.hidden = false;
     renderCard();
     cardModal.focus();
@@ -1591,9 +1643,14 @@
     if (ev && fightsOf(ev).length === 0) setImportOpen(true);
   }
 
-  function closeCard() {
+  function hideCardDom() {
     cardBackdrop.hidden = true;
     state.cardId = null;
+  }
+
+  function closeCard() {
+    hideCardDom();
+    releaseBackStep();
   }
 
   function setImportOpen(open) {
