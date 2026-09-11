@@ -105,6 +105,50 @@
   }
   .archive-btn[hidden] { display: none; }
   .archive-btn:hover { color: var(--text); border-color: var(--text-faint); }
+  .archive-btn.on { border-color: var(--accent); background: rgba(225,29,51,0.16); color: var(--text); }
+
+  header .title-block { flex: 1 1 100%; }
+  header > button { margin-top: 2px; }
+
+  /* ---------- reorder ---------- */
+
+  .reorder-hint {
+    font-size: 12.5px;
+    color: var(--text-faint);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 9px 12px;
+    margin: 0 0 18px;
+  }
+  .reorder-hint[hidden] { display: none; }
+
+  .tile-move {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    border: none;
+    padding: 0;
+    background: rgba(8,8,10,0.78);
+    color: var(--text);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    z-index: 3;
+  }
+  .tile-move.left { left: 6px; }
+  .tile-move.right { right: 6px; }
+  .tile-move:hover:not(:disabled) { background: var(--accent); }
+  .tile-move:disabled { opacity: 0.25; cursor: default; }
+
+  .tile.reordering { cursor: default; }
+  .tile.reordering:hover { transform: none; box-shadow: none; }
   .archive-btn svg { width: 15px; height: 15px; opacity: 0.85; }
   .archive-count { color: var(--text-faint); font-weight: 700; }
 
@@ -1088,6 +1132,10 @@
     <div class="title-block">
       <h1>What We're <span>Watching</span></h1>
     </div>
+    <button type="button" class="archive-btn" id="toggleReorder">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4L4 7h6zM13 16l3-3h-6z"/><path d="M4 7h12M4 13h12"/></svg>
+      <span id="reorderLabel">Reorder</span>
+    </button>
     <button type="button" class="archive-btn" id="openArchive" hidden>
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h14v11H3z"/><path d="M2 3h16v3H2zM8 10h4"/></svg>
       Watched <span class="archive-count" id="archiveCount"></span>
@@ -1107,13 +1155,17 @@
 
   <div class="stat-line" id="statLine">Loading your list&hellip;</div>
 
+  <p class="reorder-hint" id="reorderHint" hidden>
+    Use the arrows to shuffle things around. UFC Events and Coming Soon stay in date order.
+  </p>
+
   <div class="row ready" id="rowReady" hidden>
     <div class="row-title"><h2>On The List</h2><span class="count" id="readyCount"></span></div>
     <div class="row-scroll" id="readyScroll"></div>
   </div>
 
   <div class="row ufc" id="rowUfc" hidden>
-    <div class="row-title"><h2>Fight Nights</h2><span class="count" id="ufcCount"></span></div>
+    <div class="row-title"><h2>UFC Events</h2><span class="count" id="ufcCount"></span></div>
     <div class="row-scroll" id="ufcScroll"></div>
   </div>
 
@@ -1398,8 +1450,21 @@
     showPotential: true,
     formType: "show",
     cardId: null,
-    epId: null
+    epId: null,
+    reordering: false
   };
+
+  // The manually-ordered rows, as last rendered, so the arrows know what
+  // sits either side of the tile you tapped.
+  var rowLists = { ready: [], potential: [] };
+
+  // Manual position first; anything never moved keeps the newest-first order
+  // Firestore returned it in (Array.sort is stable).
+  function byOrder(a, b) {
+    var x = typeof a.order === "number" ? a.order : 1e9;
+    var y = typeof b.order === "number" ? b.order : 1e9;
+    return x - y;
+  }
 
   function typeOf(item) { return item.type === "ufc" ? "ufc" : "show"; }
   function fightsOf(item) { return Array.isArray(item.fights) ? item.fights : []; }
@@ -1543,12 +1608,17 @@
     var tvShows = visible.filter(function (s) { return typeOf(s) === "show"; });
 
     // Three buckets, in priority order: undecided, not out yet, on the list.
-    var potentialShows = state.showPotential ? tvShows.filter(function (s) { return s.potential; }) : [];
+    var potentialShows = state.showPotential
+      ? tvShows.filter(function (s) { return s.potential; }).sort(byOrder)
+      : [];
     var decided = tvShows.filter(function (s) { return !s.potential; });
     var comingShows = state.showComingSoon
       ? decided.filter(function (s) { return s.comingSoon; }).sort(byDate)
       : [];
-    var readyShows = decided.filter(function (s) { return !s.comingSoon; });
+    var readyShows = decided.filter(function (s) { return !s.comingSoon; }).sort(byOrder);
+
+    rowLists.ready = readyShows;
+    rowLists.potential = potentialShows;
 
     var totalUfc = visible.filter(function (s) { return typeOf(s) === "ufc"; }).length;
     var bits = [];
@@ -1572,21 +1642,24 @@
     rowComing.hidden = comingShows.length === 0;
 
     document.getElementById("comingCount").textContent = comingShows.length ? comingShows.length : "";
-    document.getElementById("comingScroll").innerHTML = comingShows.map(tileHtml).join("");
+    document.getElementById("comingScroll").innerHTML =
+      comingShows.map(function (s) { return tileHtml(s, null); }).join("");
 
     var rowPotential = document.getElementById("rowPotential");
     rowPotential.hidden = potentialShows.length === 0;
     document.getElementById("potentialCount").textContent = potentialShows.length ? potentialShows.length : "";
-    document.getElementById("potentialScroll").innerHTML = potentialShows.map(tileHtml).join("");
+    document.getElementById("potentialScroll").innerHTML =
+      potentialShows.map(function (s) { return tileHtml(s, "potential"); }).join("");
 
     document.getElementById("readyCount").textContent = readyShows.length ? readyShows.length : "";
-    var readyHtml = readyShows.map(tileHtml).join("") + addTileHtml("show");
+    var addShowTile = state.reordering ? "" : addTileHtml("show");
+    var readyHtml = readyShows.map(function (s) { return tileHtml(s, "ready"); }).join("") + addShowTile;
     var emptyMsg = state.shows.length === 0
       ? "Nothing on the list yet &mdash; add a show to get started."
       : "Nothing matches this filter.";
     document.getElementById("readyScroll").innerHTML = readyShows.length
       ? readyHtml
-      : '<div class="row-empty">' + emptyMsg + '</div>' + addTileHtml("show");
+      : '<div class="row-empty">' + emptyMsg + '</div>' + addShowTile;
 
     // Pencil buttons and plain show tiles both open the edit form. On a UFC
     // tile the pencil sits inside the tile, so stop the click bubbling up to
@@ -1620,6 +1693,14 @@
 
     Array.prototype.forEach.call(document.querySelectorAll("[data-add]"), function (el) {
       el.addEventListener("click", function () { openModal(null, el.getAttribute("data-add")); });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll("[data-move]"), function (el) {
+      el.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var bits = el.getAttribute("data-move").split(":");
+        moveItem(bits[0], Number(bits[1]), bits[2]);
+      });
     });
 
     applyPosterImages();
@@ -1698,8 +1779,9 @@
     );
   }
 
-  function tileHtml(show) {
+  function tileHtml(show, rowKey) {
     var style = sourceStyle(show.source);
+    var arranging = state.reordering && !!rowKey;
     var watcherIcon = show.watchers === "Just Me" ? ICON_ONE : ICON_TWO;
 
     var topLine = "";
@@ -1731,14 +1813,25 @@
         '<span class="count-text">' + progress.done + "/" + progress.total + "</span>"
       : escapeHtml(show.watchers);
 
+    var pos = arranging ? rowLists[rowKey].indexOf(show) : -1;
+    var lastPos = arranging ? rowLists[rowKey].length - 1 : -1;
+
+    var controls = arranging
+      ? '<button type="button" class="tile-move left" data-move="' + show.id + ":-1:" + rowKey + '" ' +
+          (pos <= 0 ? "disabled " : "") + 'aria-label="Move earlier">&lsaquo;</button>' +
+        '<button type="button" class="tile-move right" data-move="' + show.id + ":1:" + rowKey + '" ' +
+          (pos >= lastPos ? "disabled " : "") + 'aria-label="Move later">&rsaquo;</button>'
+      : '<button type="button" class="tile-edit" data-tile="' + show.id + '" ' +
+          'aria-label="Edit ' + escapeHtml(show.name) + '">' + ICON_PENCIL + "</button>";
+
     return (
-      '<div class="tile tap-tile" role="button" tabindex="0" data-eps="' + show.id + '" ' +
+      '<div class="tile tap-tile' + (arranging ? " reordering" : "") + '" ' +
+        (arranging ? "" : 'role="button" tabindex="0" data-eps="' + show.id + '" ') +
         (show.posterUrl ? 'data-poster="' + escapeHtml(show.posterUrl) + '" ' : '') +
         'style="--source-color:' + style.bg + '; --source-text:' + style.text + ';" ' +
-        'aria-label="' + escapeHtml(show.name) + ', open episodes">' +
+        'aria-label="' + escapeHtml(show.name) + '">' +
         '<span class="tile-source">' + escapeHtml(show.source) + '</span>' +
-        '<button type="button" class="tile-edit" data-tile="' + show.id + '" ' +
-          'aria-label="Edit ' + escapeHtml(show.name) + '">' + ICON_PENCIL + "</button>" +
+        controls +
         (show.potential
           ? '<span class="tile-maybe">Maybe</span>'
           : (show.comingSoon ? '<span class="tile-soon">Soon</span>' : '')) +
@@ -2092,6 +2185,47 @@
     state.showComingSoon = !state.showComingSoon;
     this.classList.toggle("active", state.showComingSoon);
     this.setAttribute("aria-pressed", String(state.showComingSoon));
+    render();
+  });
+
+  // Swaps a tile with its neighbour, then renumbers the row. Only the
+  // documents whose position actually changed get written.
+  function moveItem(id, delta, rowKey) {
+    var list = rowLists[rowKey];
+    if (!list) return;
+
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) { idx = i; break; }
+    var to = idx + delta;
+    if (idx < 0 || to < 0 || to >= list.length) return;
+
+    var arr = list.slice();
+    var tmp = arr[idx]; arr[idx] = arr[to]; arr[to] = tmp;
+
+    var writes = [];
+    arr.forEach(function (item, pos) {
+      if (item.order !== pos) {
+        item.order = pos;
+        writes.push(updateDoc(doc(db, "watchlist", item.id), { order: pos }));
+      }
+    });
+
+    rowLists[rowKey] = arr;
+    render();
+
+    if (writes.length) {
+      Promise.all(writes).catch(function (err) {
+        console.error(err);
+        alertInline("Couldn't save the new order — check your connection.");
+      });
+    }
+  }
+
+  document.getElementById("toggleReorder").addEventListener("click", function () {
+    state.reordering = !state.reordering;
+    this.classList.toggle("on", state.reordering);
+    document.getElementById("reorderLabel").textContent = state.reordering ? "Done" : "Reorder";
+    document.getElementById("reorderHint").hidden = !state.reordering;
     render();
   });
 
@@ -2881,6 +3015,35 @@
     if (e.key === "Escape" && !cardBackdrop.hidden) closeCard();
   });
 
+  // ---------- coming soon becomes watchable ----------
+  // Once a picked release date arrives, the show belongs on the main list
+  // rather than under Coming Soon, so move it across on the next load.
+  // Attempts are remembered so a failed write isn't retried in a loop.
+
+  var promotionTried = {};
+
+  function promoteDueShows() {
+    var today = todayISO();
+    var due = state.shows.filter(function (s) {
+      return s.comingSoon && !s.archived && s.dateISO && s.dateISO <= today && !promotionTried[s.id];
+    });
+    if (!due.length) return;
+
+    due.forEach(function (s) {
+      promotionTried[s.id] = true;
+      s.comingSoon = false;
+      updateDoc(doc(db, "watchlist", s.id), { comingSoon: false }).catch(function (err) {
+        console.error(err);
+      });
+    });
+
+    var names = due.map(function (s) { return s.name; });
+    var label = names.length === 1
+      ? names[0] + " is out — moved to your list."
+      : names.length + " shows are out — moved to your list.";
+    setTimeout(function () { alertInline(label); }, 400);
+  }
+
   // ---------- auth + live data ----------
   // auth-guard.js handles the sign-in screen itself; once it reports a
   // signed-in user, subscribe to the live Firestore list.
@@ -2894,6 +3057,7 @@
           return Object.assign({ id: d.id }, d.data());
         });
         state.ready = true;
+        promoteDueShows();
         render();
       }, function (err) {
         console.error(err);
