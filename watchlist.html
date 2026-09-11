@@ -354,6 +354,27 @@
   }
   .field .hint { font-weight: 400; color: var(--text-faint); }
 
+  .poster-preview {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text-faint);
+    min-height: 44px;
+  }
+  .poster-preview img {
+    width: 44px;
+    height: 44px;
+    object-fit: cover;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    display: none;
+  }
+  .poster-preview.loaded img { display: block; }
+  .poster-preview.error #posterPreviewMsg { color: var(--accent-hover); }
+  .poster-preview.loaded #posterPreviewMsg { color: #4ec98a; }
+
   .field input[type="text"], .field select, .field textarea {
     width: 100%;
     background: var(--surface);
@@ -592,6 +613,10 @@
       <div class="field">
         <label for="f-poster">Poster image URL <span class="hint">(optional)</span></label>
         <input type="text" id="f-poster" placeholder="Paste a link to a poster image">
+        <div class="poster-preview" id="posterPreview" hidden>
+          <img id="posterPreviewImg" alt="">
+          <span id="posterPreviewMsg"></span>
+        </div>
       </div>
 
       <div class="field">
@@ -831,6 +856,38 @@
   var submitBtn = document.getElementById("submitBtn");
   var leftActions = document.getElementById("modalLeftActions");
   var formError = document.getElementById("formError");
+  var posterInput = document.getElementById("f-poster");
+  var posterPreview = document.getElementById("posterPreview");
+  var posterPreviewImg = document.getElementById("posterPreviewImg");
+  var posterPreviewMsg = document.getElementById("posterPreviewMsg");
+  var posterCheckToken = 0;
+
+  function checkPosterPreview() {
+    var url = posterInput.value.trim();
+    posterCheckToken++;
+    var token = posterCheckToken;
+    posterPreview.classList.remove("loaded", "error");
+
+    if (!url) { posterPreview.hidden = true; return; }
+
+    posterPreview.hidden = false;
+    posterPreviewMsg.textContent = "Checking…";
+    var img = new Image();
+    img.onload = function () {
+      if (token !== posterCheckToken) return;
+      posterPreviewImg.src = url;
+      posterPreview.classList.add("loaded");
+      posterPreviewMsg.textContent = "Looks good";
+    };
+    img.onerror = function () {
+      if (token !== posterCheckToken) return;
+      posterPreview.classList.add("error");
+      posterPreviewMsg.textContent = "Couldn't load this — try a different link";
+    };
+    img.src = url;
+  }
+
+  posterInput.addEventListener("blur", checkPosterPreview);
 
   function openModal(id) {
     state.editingId = id;
@@ -869,6 +926,7 @@
       submitBtn.textContent = "Add to list";
     }
 
+    checkPosterPreview();
     renderLeftActions();
     backdrop.hidden = false;
 
