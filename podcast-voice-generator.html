@@ -84,7 +84,7 @@
 <audio id="player" controls></audio>
 <a id="dl" class="dl" download="podcast.wav">⬇️ Download WAV file</a>
 
-<p class="hint">First generation on a new device downloads a ~90MB voice model over your normal internet connection, so use Wi-Fi if you can. After that it's cached in this browser and later runs are quick. The very first sentence generated each session is also the slowest — the speech engine is warming up — after that each part should speed up noticeably. If your device supports it this uses GPU acceleration (fast); otherwise it falls back to CPU-only mode, which can take a couple of minutes per part on an older phone — the status line shows which mode is active and a running timer, so it should never look frozen. Nothing you type or upload is sent anywhere — it all happens locally in this tab.</p>
+<p class="hint">First generation on a new device downloads a ~90MB voice model over your normal internet connection, so use Wi-Fi if you can. After that it's cached in this browser and later runs are quick. This runs in CPU-only mode (deliberately — GPU mode was faster but produced audible glitches on-device), so the first part especially can take a couple of minutes while the engine warms up; the status line shows a running timer per part so it should never look frozen. Nothing you type or upload is sent anywhere — it all happens locally in this tab.</p>
 
 <script type="module">
 import { KokoroTTS } from "https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm";
@@ -138,38 +138,37 @@ let ttsDevice = null;
 async function ensureModel() {
   if (tts) return tts;
 
-  const hasWebGPU = !!(navigator.gpu);
-  // Prefer WebGPU (much faster) when the browser supports it; always have a
-  // CPU-only WASM fallback since WebGPU support/reliability varies a lot on mobile.
-  const attempts = hasWebGPU
-    ? [{ device: "webgpu", dtype: "fp32" }, { device: "wasm", dtype: "q8" }]
-    : [{ device: "wasm", dtype: "q8" }];
+  // NOTE: WebGPU acceleration was tried here previously but produced regular
+  // audible glitches on-device (a correctness issue with the WebGPU backend,
+  // not a speed/quality tradeoff worth keeping). Sticking to the CPU (WASM)
+  // path only, which is slower but clean.
+  ttsDevice = "wasm";
+  setProgress(2);
+  setStatus("Downloading voice model (first time only, ~90MB)...");
+  tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+    dtype: "q8",
+    device: "wasm",
+    progress_callback: (p) => {
+      if (p && typeof p.progress === "number") {
+        setProgress(p.progress);
+        setStatus(`Downloading voice model... ${Math.round(p.progress)}%`);
+      }
+    },
+  });
+  setProgress(100);
+  return tts;
+}
 
-  let lastErr = null;
-  for (const opts of attempts) {
-    try {
-      setProgress(2);
-      setStatus(`Downloading voice model (first time only, ~90MB)... [${opts.device}]`);
-      tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
-        dtype: opts.dtype,
-        device: opts.device,
-        progress_callback: (p) => {
-          if (p && typeof p.progress === "number") {
-            setProgress(p.progress);
-            setStatus(`Downloading voice model... ${Math.round(p.progress)}% [${opts.device}]`);
-          }
-        },
-      });
-      setProgress(100);
-      ttsDevice = opts.device;
-      return tts;
-    } catch (err) {
-      console.warn(`Voice engine failed to start on ${opts.device}:`, err);
-      lastErr = err;
-      tts = null;
-    }
+// Short linear fade in/out on a chunk's audio to prevent audible clicks
+// where separately-generated pieces are joined together.
+function fadeEdges(samples, sampleRate, ms = 8) {
+  const n = Math.min(Math.round((ms / 1000) * sampleRate), Math.floor(samples.length / 2));
+  for (let i = 0; i < n; i++) {
+    const g = i / n;
+    samples[i] *= g;
+    samples[samples.length - 1 - i] *= g;
   }
-  throw lastErr || new Error("Could not start the voice engine on this device.");
+  return samples;
 }
 
 function splitIntoChunks(text, maxLen = 170) {
@@ -281,7 +280,8 @@ genBtn.addEventListener("click", async () => {
       try {
         const audio = await model.generate(chunks[i], { voice });
         sampleRate = audio.sampling_rate || sampleRate;
-        pieces.push(audio.data ?? audio.audio);
+        const samples = Float32Array.from(audio.data ?? audio.audio);
+        pieces.push(fadeEdges(samples, sampleRate));
         if (i < chunks.length - 1) pieces.push(makeSilence(0.3, sampleRate));
       } finally {
         clearInterval(timer);
