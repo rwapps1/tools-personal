@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podcast Voice Generator</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 24px 16px 60px;
+    background: #0e1116;
+    color: #e8eaed;
+  }
+  @media (prefers-color-scheme: light) {
+    body { background: #fafafa; color: #14181f; }
+  }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; }
+  p.sub { opacity: .7; font-size: .92rem; margin: 0 0 20px; line-height: 1.4; }
+  label.filelabel {
+    display: inline-block; font-size: .85rem; opacity: .75; margin-left: 8px;
+  }
+  textarea {
+    width: 100%; min-height: 240px; padding: 12px; border-radius: 10px;
+    border: 1px solid #ffffff33; background: #1a1f27; color: inherit;
+    font-size: .95rem; line-height: 1.45; resize: vertical;
+  }
+  @media (prefers-color-scheme: light) {
+    textarea { background: #fff; border-color: #00000022; }
+  }
+  select, button, input[type=file] {
+    font-size: 1rem; padding: 11px 16px; border-radius: 10px;
+    border: 1px solid #ffffff33; background: #1a1f27; color: inherit;
+  }
+  @media (prefers-color-scheme: light) {
+    select, button, input[type=file] { background: #fff; border-color: #00000022; }
+  }
+  button {
+    background: #3b6fe0; color: #fff; border: none; cursor: pointer;
+    font-weight: 600; flex: 1; min-width: 160px;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 14px 0; }
+  #status {
+    font-size: .9rem; opacity: .9; min-height: 1.4em; white-space: pre-wrap;
+    margin-top: 6px;
+  }
+  #bar {
+    height: 8px; border-radius: 4px; background: #ffffff22; overflow: hidden;
+    margin-top: 8px; display: none;
+  }
+  #barFill { height: 100%; width: 0%; background: #3b6fe0; transition: width .25s; }
+  audio { width: 100%; margin-top: 16px; display: none; }
+  a.dl {
+    display: none; margin-top: 12px; text-align: center; padding: 12px 16px;
+    border-radius: 10px; background: #23c17a; color: #06210f; font-weight: 700;
+    text-decoration: none;
+  }
+  .hint { font-size: .8rem; opacity: .6; margin-top: 18px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<h1>🎙️ Podcast Voice Generator</h1>
+<p class="sub">Paste or upload a script, pick a voice, tap Generate. Everything runs on this device — the voice model downloads once (first use only) and is cached after that.</p>
+
+<div class="row">
+  <input type="file" id="fileInput" accept=".txt">
+  <label class="filelabel">upload a .txt, or just paste below</label>
+</div>
+
+<textarea id="text" placeholder="Paste your script here..."></textarea>
+
+<div class="row">
+  <select id="voice"></select>
+  <button id="genBtn">Generate audio</button>
+</div>
+
+<div id="bar"><div id="barFill"></div></div>
+<div id="status"></div>
+<audio id="player" controls></audio>
+<a id="dl" class="dl" download="podcast.wav">⬇️ Download WAV file</a>
+
+<p class="hint">First generation on a new device downloads a ~90MB voice model over your normal internet connection, so use Wi-Fi if you can. After that it's cached in this browser and later runs are quick. Nothing you type or upload is sent anywhere — it all happens locally in this tab.</p>
+
+<script type="module">
+import { KokoroTTS } from "https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm";
+
+const VOICES = [
+  ["bf_emma", "🇬🇧 Emma (female) — recommended"],
+  ["bm_george", "🇬🇧 George (male)"],
+  ["bf_isabella", "🇬🇧 Isabella (female)"],
+  ["bm_fable", "🇬🇧 Fable (male)"],
+  ["bf_alice", "🇬🇧 Alice (female)"],
+  ["bf_lily", "🇬🇧 Lily (female)"],
+  ["bm_daniel", "🇬🇧 Daniel (male)"],
+  ["bm_lewis", "🇬🇧 Lewis (male)"],
+  ["af_heart", "🇺🇸 Heart (female)"],
+  ["af_bella", "🇺🇸 Bella (female)"],
+  ["am_michael", "🇺🇸 Michael (male)"],
+];
+
+const voiceSel = document.getElementById("voice");
+for (const [id, label] of VOICES) {
+  const o = document.createElement("option");
+  o.value = id;
+  o.textContent = label;
+  voiceSel.appendChild(o);
+}
+
+const fileInput = document.getElementById("fileInput");
+const textArea = document.getElementById("text");
+const genBtn = document.getElementById("genBtn");
+const statusEl = document.getElementById("status");
+const bar = document.getElementById("bar");
+const barFill = document.getElementById("barFill");
+const player = document.getElementById("player");
+const dlLink = document.getElementById("dl");
+
+fileInput.addEventListener("change", async () => {
+  const f = fileInput.files[0];
+  if (!f) return;
+  textArea.value = await f.text();
+});
+
+function setStatus(msg) { statusEl.textContent = msg; }
+function setProgress(pct) {
+  bar.style.display = "block";
+  barFill.style.width = Math.max(0, Math.min(100, pct)) + "%";
+}
+
+let tts = null;
+
+async function ensureModel() {
+  if (tts) return tts;
+  setStatus("Downloading voice model (first time only, ~90MB)...");
+  setProgress(2);
+  tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+    dtype: "q8",
+    device: "wasm",
+    progress_callback: (p) => {
+      if (p && typeof p.progress === "number") {
+        setProgress(p.progress);
+        setStatus(`Downloading voice model... ${Math.round(p.progress)}%`);
+      }
+    },
+  });
+  setProgress(100);
+  return tts;
+}
+
+function splitIntoChunks(text, maxLen = 350) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const sentences = clean.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [clean];
+  const chunks = [];
+  let cur = "";
+  for (const s of sentences) {
+    if ((cur + s).length > maxLen && cur) {
+      chunks.push(cur.trim());
+      cur = s;
+    } else {
+      cur += s;
+    }
+  }
+  if (cur.trim()) chunks.push(cur.trim());
+  return chunks.filter(Boolean);
+}
+
+function makeSilence(seconds, sampleRate) {
+  return new Float32Array(Math.round(seconds * sampleRate));
+}
+
+function makeTone(freq, seconds, sampleRate, gain = 0.16) {
+  const n = Math.round(seconds * sampleRate);
+  const out = new Float32Array(n);
+  const fadeN = Math.round(sampleRate * 0.05);
+  for (let i = 0; i < n; i++) {
+    let env = 1;
+    if (i < fadeN) env = i / fadeN;
+    else if (i > n - fadeN) env = (n - i) / fadeN;
+    out[i] = Math.sin((2 * Math.PI * freq * i) / sampleRate) * gain * env;
+  }
+  return out;
+}
+
+function concatFloat32(arrays) {
+  let total = 0;
+  for (const a of arrays) total += a.length;
+  const out = new Float32Array(total);
+  let offset = 0;
+  for (const a of arrays) {
+    out.set(a, offset);
+    offset += a.length;
+  }
+  return out;
+}
+
+function encodeWav(samples, sampleRate) {
+  const numChannels = 1;
+  const bytesPerSample = 2;
+  const blockAlign = numChannels * bytesPerSample;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  function writeString(offset, str) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  }
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+genBtn.addEventListener("click", async () => {
+  const text = textArea.value.trim();
+  if (!text) {
+    setStatus("Paste or upload some text first.");
+    return;
+  }
+  genBtn.disabled = true;
+  player.style.display = "none";
+  dlLink.style.display = "none";
+  try {
+    const model = await ensureModel();
+    const voice = voiceSel.value;
+    const chunks = splitIntoChunks(text);
+    const pieces = [];
+    let sampleRate = 24000;
+
+    for (let i = 0; i < chunks.length; i++) {
+      setStatus(`Generating speech: part ${i + 1} of ${chunks.length}...`);
+      setProgress((i / chunks.length) * 100);
+      const audio = await model.generate(chunks[i], { voice });
+      sampleRate = audio.sampling_rate || sampleRate;
+      pieces.push(audio.data ?? audio.audio);
+      if (i < chunks.length - 1) pieces.push(makeSilence(0.35, sampleRate));
+    }
+    setProgress(100);
+    setStatus("Adding intro/outro and finishing up...");
+
+    const chime = makeTone(523, 1.1, sampleRate, 0.18);
+    const gap = makeSilence(0.4, sampleRate);
+    const full = concatFloat32([chime, gap, ...pieces, gap, chime]);
+    const blob = encodeWav(full, sampleRate);
+    const url = URL.createObjectURL(blob);
+
+    player.src = url;
+    player.style.display = "block";
+    dlLink.href = url;
+    dlLink.style.display = "inline-block";
+    const stamp = new Date().toISOString().slice(0, 10);
+    dlLink.download = `podcast-${stamp}.wav`;
+    setStatus("Done! Play it below, or tap Download to save the file.");
+  } catch (err) {
+    console.error(err);
+    setStatus("Something went wrong: " + (err && err.message ? err.message : err));
+  } finally {
+    genBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>
