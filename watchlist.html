@@ -1031,6 +1031,53 @@
   }
   .add-season .btn-small { margin-left: auto; }
 
+  /* ---------- finished prompt ---------- */
+
+  .done-prompt {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(2px);
+  }
+  .done-prompt[hidden] { display: none; }
+
+  .done-box {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px 22px 20px;
+    width: 100%;
+    max-width: 340px;
+    text-align: center;
+    box-shadow: 0 30px 60px -20px rgba(0,0,0,0.75);
+  }
+  .done-box .tick-badge {
+    width: 46px;
+    height: 46px;
+    margin: 0 auto 14px;
+    border-radius: 50%;
+    background: var(--ok);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .done-box .tick-badge svg { width: 24px; height: 24px; color: #06281a; }
+  .done-box h3 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 24px;
+    letter-spacing: 0.4px;
+    margin: 0 0 6px;
+  }
+  .done-box p { font-size: 13.5px; color: var(--text-dim); margin: 0 0 20px; line-height: 1.45; }
+  .done-actions { display: flex; gap: 10px; }
+  .done-actions button { flex: 1; }
+
   /* ---------- card import panel ---------- */
 
   .import-panel {
@@ -1336,6 +1383,19 @@
         </div>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Finished prompt -->
+<div class="done-prompt" id="donePrompt" hidden>
+  <div class="done-box" role="dialog" aria-modal="true" aria-labelledby="donePromptTitle" tabindex="-1">
+    <span class="tick-badge"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10.5l4 4 8-9"/></svg></span>
+    <h3 id="donePromptTitle">That's the lot</h3>
+    <p id="donePromptText"></p>
+    <div class="done-actions">
+      <button type="button" class="btn-secondary" id="donePromptNo">Not yet</button>
+      <button type="button" class="btn-primary" id="donePromptYes">Mark watched</button>
+    </div>
   </div>
 </div>
 
@@ -2376,6 +2436,66 @@
       });
   });
 
+  // ---------- finished prompt ----------
+  // Offered once when the last item is ticked off. Dismissing sets a flag
+  // that clears again if the count drops back below complete, so re-watching
+  // something and finishing it again still asks.
+
+  var donePrompt = document.getElementById("donePrompt");
+  var promptDismissed = {};
+  var promptTargetId = null;
+
+  function checkFinished(id, done, total) {
+    if (!total || !id) return;
+    if (done < total) { delete promptDismissed[id]; return; }
+    if (promptDismissed[id]) return;
+
+    var item = state.shows.filter(function (s) { return s.id === id; })[0];
+    if (!item || item.archived) return;
+
+    promptDismissed[id] = true;
+    promptTargetId = id;
+    document.getElementById("donePromptText").textContent =
+      typeOf(item) === "ufc"
+        ? "You've watched every fight on the " + item.name + " card. Move it to Watched?"
+        : "You've watched every episode of " + item.name + ". Move it to Watched?";
+    donePrompt.hidden = false;
+    document.getElementById("donePromptYes").focus();
+  }
+
+  function hideDonePrompt() {
+    donePrompt.hidden = true;
+    promptTargetId = null;
+  }
+
+  document.getElementById("donePromptNo").addEventListener("click", hideDonePrompt);
+
+  document.getElementById("donePromptYes").addEventListener("click", function () {
+    var id = promptTargetId;
+    hideDonePrompt();
+    if (!id) return;
+
+    // The panel behind it is about to be showing something that's no longer
+    // on the list, so close it too.
+    if (state.cardId === id) closeCard();
+    if (state.epId === id) closeEpisodes();
+
+    updateDoc(doc(db, "watchlist", id), {
+      archived: true,
+      archivedAt: serverTimestamp()
+    }).catch(function (err) {
+      console.error(err);
+      alertInline("Couldn't move that to Watched — try again in a moment.");
+    });
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !donePrompt.hidden) {
+      e.stopPropagation();
+      hideDonePrompt();
+    }
+  }, true);
+
   // ---------- episodes ----------
 
   var epBackdrop = document.getElementById("epBackdrop");
@@ -2401,6 +2521,7 @@
   function hideEpDom() {
     epBackdrop.hidden = true;
     state.epId = null;
+    hideDonePrompt();
   }
 
   function closeEpisodes() {
@@ -2413,7 +2534,13 @@
     if (!id) return;
     var map = seasonsToMap(list);
     var show = currentShow();
-    if (show) { show.seasons = map; renderEpisodes(); render(); }
+    if (show) {
+      show.seasons = map;
+      renderEpisodes();
+      render();
+      var prog = showProgress(show);
+      checkFinished(id, prog.done, prog.total);
+    }
     updateDoc(doc(db, "watchlist", id), { seasons: map }).catch(function (err) {
       console.error(err);
       alertInline("Couldn't save that — check your connection.");
@@ -2816,6 +2943,7 @@
   function hideCardDom() {
     cardBackdrop.hidden = true;
     state.cardId = null;
+    hideDonePrompt();
     cardResults = null;
     cardResultsLoading = false;
     revealed = {};
@@ -2933,7 +3061,11 @@
     if (!id) return Promise.resolve();
     // Update the local copy first so the card reacts instantly, then persist.
     var ev = currentEvent();
-    if (ev) { ev.fights = fights; renderCard(); }
+    if (ev) {
+      ev.fights = fights;
+      renderCard();
+      checkFinished(id, fights.filter(function (f) { return f.watched; }).length, fights.length);
+    }
     return updateDoc(doc(db, "watchlist", id), { fights: fights }).catch(function (err) {
       console.error(err);
       importStatus.className = "import-status error";
