@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Podcast Player</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 24px 16px 60px;
+    background: #0e1116;
+    color: #e8eaed;
+  }
+  @media (prefers-color-scheme: light) {
+    body { background: #fafafa; color: #14181f; }
+  }
+  h1 { font-size: 1.35rem; margin: 0 0 4px; }
+  p.sub { opacity: .7; font-size: .92rem; margin: 0 0 20px; line-height: 1.4; }
+  label.filelabel { display: inline-block; font-size: .85rem; opacity: .75; margin-left: 8px; }
+  textarea {
+    width: 100%; min-height: 220px; padding: 12px; border-radius: 10px;
+    border: 1px solid #ffffff33; background: #1a1f27; color: inherit;
+    font-size: .95rem; line-height: 1.45; resize: vertical;
+  }
+  @media (prefers-color-scheme: light) { textarea { background: #fff; border-color: #00000022; } }
+  select, button, input[type=file], input[type=range] {
+    font-size: 1rem; padding: 11px 16px; border-radius: 10px;
+    border: 1px solid #ffffff33; background: #1a1f27; color: inherit;
+  }
+  @media (prefers-color-scheme: light) {
+    select, button, input[type=file] { background: #fff; border-color: #00000022; }
+  }
+  button { background: #3b6fe0; color: #fff; border: none; cursor: pointer; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  button.secondary { background: #ffffff1a; color: inherit; }
+  @media (prefers-color-scheme: light) { button.secondary { background: #00000010; } }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 14px 0; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; }
+  .controls button { flex: 1; min-width: 100px; }
+  #status { font-size: .95rem; opacity: .9; min-height: 1.4em; margin-top: 10px; font-weight: 600; }
+  #bar { height: 8px; border-radius: 4px; background: #ffffff22; overflow: hidden; margin-top: 8px; }
+  #barFill { height: 100%; width: 0%; background: #3b6fe0; transition: width .25s; }
+  .rateRow { display: flex; align-items: center; gap: 10px; }
+  .rateRow input[type=range] { flex: 1; padding: 0; }
+  .hint { font-size: .8rem; opacity: .6; margin-top: 18px; line-height: 1.5; }
+</style>
+</head>
+<body>
+
+<h1>🎧 Podcast Player</h1>
+<p class="sub">Paste or upload a script and tap Play — it's read aloud using your phone's own voice, live. Nothing to download, nothing to wait for.</p>
+
+<div class="row">
+  <input type="file" id="fileInput" accept=".txt">
+  <label class="filelabel">upload a .txt, or just paste below</label>
+</div>
+
+<textarea id="text" placeholder="Paste your script here..."></textarea>
+
+<div class="row">
+  <select id="voice" style="flex:1"></select>
+</div>
+
+<div class="rateRow">
+  <span style="font-size:.85rem;opacity:.75">Speed</span>
+  <input type="range" id="rate" min="0.7" max="1.4" step="0.05" value="1">
+  <span id="rateVal" style="font-size:.85rem;opacity:.75;min-width:34px">1.0x</span>
+</div>
+
+<div class="controls" style="margin-top:14px">
+  <button id="playBtn">▶ Play</button>
+  <button id="pauseBtn" class="secondary" disabled>⏸ Pause</button>
+  <button id="stopBtn" class="secondary" disabled>⏹ Stop</button>
+</div>
+
+<div id="bar"><div id="barFill"></div></div>
+<div id="status"></div>
+
+<p class="hint">Keep this tab open and your phone unlocked while it plays — most phones stop background tabs, so this won't play like a music app in the background or with the screen off. If it cuts out partway through on Android Chrome, that's a known browser quirk with long readings; Stop and Play again picks up better on a shorter chunk, or just try once more. Voice options come from your phone/browser, so what's listed varies by device.</p>
+
+<script>
+const fileInput = document.getElementById("fileInput");
+const textArea = document.getElementById("text");
+const voiceSel = document.getElementById("voice");
+const rateInput = document.getElementById("rate");
+const rateVal = document.getElementById("rateVal");
+const playBtn = document.getElementById("playBtn");
+const pauseBtn = document.getElementById("pauseBtn");
+const stopBtn = document.getElementById("stopBtn");
+const statusEl = document.getElementById("status");
+const barFill = document.getElementById("barFill");
+
+fileInput.addEventListener("change", async () => {
+  const f = fileInput.files[0];
+  if (!f) return;
+  textArea.value = await f.text();
+});
+
+rateInput.addEventListener("input", () => {
+  rateVal.textContent = parseFloat(rateInput.value).toFixed(2) + "x";
+});
+
+function setStatus(msg) { statusEl.textContent = msg; }
+function setProgress(pct) { barFill.style.width = Math.max(0, Math.min(100, pct)) + "%"; }
+
+// --- Voice list ---
+let voices = [];
+
+function populateVoices() {
+  voices = speechSynthesis.getVoices() || [];
+  const english = voices.filter(v => v.lang && v.lang.toLowerCase().startsWith("en"));
+  const list = english.length ? english : voices;
+
+  // UK voices first, then everything else, alphabetically within each group
+  list.sort((a, b) => {
+    const aGB = a.lang.toLowerCase() === "en-gb" ? 0 : 1;
+    const bGB = b.lang.toLowerCase() === "en-gb" ? 0 : 1;
+    if (aGB !== bGB) return aGB - bGB;
+    return a.name.localeCompare(b.name);
+  });
+
+  const prevSelection = voiceSel.value;
+  voiceSel.innerHTML = "";
+  for (const v of list) {
+    const o = document.createElement("option");
+    o.value = v.name;
+    const flag = v.lang.toLowerCase() === "en-gb" ? "🇬🇧 " : v.lang.toLowerCase().startsWith("en-us") ? "🇺🇸 " : "";
+    o.textContent = `${flag}${v.name} (${v.lang})`;
+    voiceSel.appendChild(o);
+  }
+  if (prevSelection && list.some(v => v.name === prevSelection)) {
+    voiceSel.value = prevSelection;
+  }
+  if (!list.length) {
+    const o = document.createElement("option");
+    o.textContent = "No voices found — using device default";
+    voiceSel.appendChild(o);
+  }
+}
+
+populateVoices();
+if (typeof speechSynthesis !== "undefined") {
+  speechSynthesis.onvoiceschanged = populateVoices;
+}
+// Some mobile browsers never fire voiceschanged reliably — poll briefly as a fallback.
+let voiceTries = 0;
+const voicePoll = setInterval(() => {
+  if (voices.length > 0 || voiceTries++ > 15) {
+    clearInterval(voicePoll);
+    if (!voices.length) populateVoices();
+  } else {
+    populateVoices();
+  }
+}, 300);
+
+// --- Chunking (sentence-based, keeps utterances short and reliable) ---
+function splitIntoChunks(text, maxLen = 220) {
+  const clean = text.replace(/\s+/g, " ").trim();
+  const sentences = clean.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g) || [clean];
+  const chunks = [];
+  let cur = "";
+  for (const s of sentences) {
+    if ((cur + s).length > maxLen && cur) {
+      chunks.push(cur.trim());
+      cur = s;
+    } else {
+      cur += s;
+    }
+  }
+  if (cur.trim()) chunks.push(cur.trim());
+  return chunks.filter(Boolean);
+}
+
+// --- Playback ---
+let queue = [];
+let idx = 0;
+let keepAliveTimer = null;
+let userStopped = false;
+
+function setControls(playing) {
+  playBtn.disabled = playing;
+  pauseBtn.disabled = !playing;
+  stopBtn.disabled = !playing;
+  pauseBtn.textContent = "⏸ Pause";
+}
+
+function speakNext() {
+  if (userStopped) return;
+  if (idx >= queue.length) {
+    setStatus("Finished.");
+    setProgress(100);
+    setControls(false);
+    clearInterval(keepAliveTimer);
+    return;
+  }
+  setStatus(`Reading part ${idx + 1} of ${queue.length}...`);
+  setProgress((idx / queue.length) * 100);
+
+  const utter = new SpeechSynthesisUtterance(queue[idx]);
+  const chosen = voices.find(v => v.name === voiceSel.value);
+  if (chosen) utter.voice = chosen;
+  utter.rate = parseFloat(rateInput.value) || 1;
+
+  utter.onend = () => { idx++; speakNext(); };
+  utter.onerror = (e) => {
+    console.warn("Speech error, skipping part:", e);
+    idx++; speakNext();
+  };
+
+  speechSynthesis.speak(utter);
+}
+
+playBtn.addEventListener("click", () => {
+  const text = textArea.value.trim();
+  if (!text) { setStatus("Paste or upload some text first."); return; }
+
+  speechSynthesis.cancel();
+  queue = splitIntoChunks(text);
+  idx = 0;
+  userStopped = false;
+  setControls(true);
+  setProgress(0);
+
+  // Chrome has a known bug where speech silently stops after roughly 15s on
+  // some platforms. Nudging pause/resume periodically keeps it alive.
+  clearInterval(keepAliveTimer);
+  keepAliveTimer = setInterval(() => {
+    if (speechSynthesis.speaking && !speechSynthesis.paused) {
+      speechSynthesis.pause();
+      speechSynthesis.resume();
+    }
+  }, 9000);
+
+  speakNext();
+});
+
+pauseBtn.addEventListener("click", () => {
+  if (speechSynthesis.speaking && !speechSynthesis.paused) {
+    speechSynthesis.pause();
+    pauseBtn.textContent = "▶ Resume";
+  } else if (speechSynthesis.paused) {
+    speechSynthesis.resume();
+    pauseBtn.textContent = "⏸ Pause";
+  }
+});
+
+stopBtn.addEventListener("click", () => {
+  userStopped = true;
+  speechSynthesis.cancel();
+  clearInterval(keepAliveTimer);
+  setControls(false);
+  setStatus("Stopped.");
+  setProgress(0);
+});
+</script>
+</body>
+</html>
