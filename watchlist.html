@@ -223,14 +223,11 @@
 
   .filters-row {
     display: flex;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     gap: 6px;
     align-items: center;
     margin: 14px 0 20px;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
   }
-  .filters-row::-webkit-scrollbar { display: none; }
 
   .filter-group {
     display: inline-flex;
@@ -258,13 +255,6 @@
   }
   .filter-group .filter-pill:hover { color: var(--text); }
   .filter-group .filter-pill.active { background: var(--surface-2); color: var(--text); }
-
-  .toggle-pill {
-    border: 1px solid var(--border);
-    background: var(--surface);
-  }
-  .toggle-pill:hover { color: var(--text); }
-  .toggle-pill.active { border-color: var(--accent); background: rgba(225,29,51,0.14); color: var(--text); }
 
   /* ---------- stat line ---------- */
 
@@ -445,12 +435,6 @@
     border-radius: 999px;
     background: var(--maybe);
     color: #fff;
-  }
-
-  .toggle-pill.maybe-pill.active {
-    border-color: var(--maybe);
-    background: rgba(139,124,240,0.18);
-    color: var(--text);
   }
 
   .tile.add-tile {
@@ -1245,12 +1229,6 @@
     .tile { flex: 1 1 calc(50% - 7px); max-width: calc(50% - 7px); }
   }
 
-  /* On a really narrow phone six pills can't share a line — wrap onto two
-     rows rather than hiding some behind a scroll the eye can't see. */
-  @media (max-width: 380px) {
-    .filters-row { flex-wrap: wrap; overflow-x: visible; row-gap: 8px; }
-  }
-
   @media (max-width: 480px) {
     body { padding: 22px 14px 80px; }
     .tile { flex: 1 1 calc(50% - 6px); max-width: calc(50% - 6px); }
@@ -1281,9 +1259,13 @@
       <button class="filter-pill" data-who="Just Me" type="button">Just Me</button>
       <button class="filter-pill" data-who="Me &amp; Emma" type="button">Us</button>
     </div>
-    <button class="filter-pill toggle-pill active" id="toggleComingSoon" type="button" aria-pressed="true">Soon</button>
-    <button class="filter-pill toggle-pill active" id="toggleUfc" type="button" aria-pressed="true">UFC</button>
-    <button class="filter-pill toggle-pill maybe-pill active" id="togglePotential" type="button" aria-pressed="true">Maybe</button>
+    <div class="filter-group" role="group" aria-label="Section">
+      <button class="filter-pill active" data-section="all" type="button">All</button>
+      <button class="filter-pill" data-section="list" type="button">List</button>
+      <button class="filter-pill" data-section="soon" type="button">Soon</button>
+      <button class="filter-pill" data-section="ufc" type="button">UFC</button>
+      <button class="filter-pill" data-section="maybe" type="button">Maybe</button>
+    </div>
   </div>
 
   <div class="stat-line" id="statLine">Loading your list&hellip;</div>
@@ -1591,9 +1573,7 @@
     confirmingDelete: false,
     saving: false,
     filterWho: "all",
-    showComingSoon: true,
-    showUfc: true,
-    showPotential: true,
+    section: "all",
     formType: "show",
     cardId: null,
     epId: null,
@@ -1752,18 +1732,24 @@
     var ufcAll = visible.filter(function (s) { return typeOf(s) === "ufc"; });
     var tvShows = visible.filter(function (s) { return typeOf(s) === "show"; });
 
+    // "All" shows every section; any other choice isolates just that one.
+    var showList = state.section === "all" || state.section === "list";
+    var showSoon = state.section === "all" || state.section === "soon";
+    var showUfcSection = state.section === "all" || state.section === "ufc";
+    var showMaybe = state.section === "all" || state.section === "maybe";
+
     // An event held as coming soon waits in that row until its date lands.
-    var ufcEvents = state.showUfc
+    var ufcEvents = showUfcSection
       ? ufcAll.filter(function (s) { return !s.comingSoon; }).sort(byDate)
       : [];
-    var ufcComing = state.showUfc ? ufcAll.filter(function (s) { return s.comingSoon; }) : [];
+    var ufcComing = showUfcSection ? ufcAll.filter(function (s) { return s.comingSoon; }) : [];
 
     // Three buckets, in priority order: undecided, not out yet, on the list.
-    var potentialShows = state.showPotential
+    var potentialShows = showMaybe
       ? tvShows.filter(function (s) { return s.potential; }).sort(byOrder)
       : [];
     var decided = tvShows.filter(function (s) { return !s.potential; });
-    var comingShows = state.showComingSoon
+    var comingShows = showSoon
       ? decided.filter(function (s) { return s.comingSoon; }).concat(ufcComing).sort(byDate)
       : [];
     var readyShows = decided.filter(function (s) { return !s.comingSoon; }).sort(byOrder);
@@ -1780,7 +1766,7 @@
       (state.filterWho === "all" ? "" : " for " + escapeHtml(state.filterWho));
 
     var rowUfc = document.getElementById("rowUfc");
-    rowUfc.hidden = ufcEvents.length === 0 && !state.showUfc;
+    rowUfc.hidden = ufcEvents.length === 0 && !showUfcSection;
     if (!rowUfc.hidden) {
       document.getElementById("ufcCount").textContent = ufcEvents.length ? ufcEvents.length : "";
       document.getElementById("ufcScroll").innerHTML =
@@ -1789,7 +1775,7 @@
 
     var rowComing = document.getElementById("rowComing");
     var rowReady = document.getElementById("rowReady");
-    rowReady.hidden = false;
+    rowReady.hidden = !showList;
     rowComing.hidden = comingShows.length === 0;
 
     document.getElementById("comingCount").textContent = comingShows.length ? comingShows.length : "";
@@ -2379,11 +2365,14 @@
     });
   });
 
-  document.getElementById("toggleComingSoon").addEventListener("click", function () {
-    state.showComingSoon = !state.showComingSoon;
-    this.classList.toggle("active", state.showComingSoon);
-    this.setAttribute("aria-pressed", String(state.showComingSoon));
-    render();
+  Array.prototype.forEach.call(document.querySelectorAll(".filter-group [data-section]"), function (btn) {
+    btn.addEventListener("click", function () {
+      state.section = btn.getAttribute("data-section");
+      Array.prototype.forEach.call(document.querySelectorAll(".filter-group [data-section]"), function (b) {
+        b.classList.toggle("active", b === btn);
+      });
+      render();
+    });
   });
 
   // Swaps a tile with its neighbour, then renumbers the row. Only the
@@ -2425,20 +2414,6 @@
       state.reorderRow = state.reorderRow === key ? null : key;
       render();
     });
-  });
-
-  document.getElementById("togglePotential").addEventListener("click", function () {
-    state.showPotential = !state.showPotential;
-    this.classList.toggle("active", state.showPotential);
-    this.setAttribute("aria-pressed", String(state.showPotential));
-    render();
-  });
-
-  document.getElementById("toggleUfc").addEventListener("click", function () {
-    state.showUfc = !state.showUfc;
-    this.classList.toggle("active", state.showUfc);
-    this.setAttribute("aria-pressed", String(state.showUfc));
-    render();
   });
 
   sourceSelect.addEventListener("change", function () {
