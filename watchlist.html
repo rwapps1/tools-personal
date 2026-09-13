@@ -105,6 +105,31 @@
   }
   .archive-btn[hidden] { display: none; }
   .archive-btn:hover { color: var(--text); border-color: var(--text-faint); }
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-dim);
+    padding: 0;
+    cursor: pointer;
+  }
+  .icon-btn:hover { color: var(--text); border-color: var(--text-faint); }
+  .icon-btn svg { width: 17px; height: 17px; }
+
   /* ---------- reorder ---------- */
 
   /* Sits at the right-hand end of the row it reorders. */
@@ -212,6 +237,30 @@
   }
   .arch-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
   .arch-actions .btn-small { padding: 7px 10px; font-size: 12px; }
+
+  /* ---------- search ---------- */
+
+  .search-result {
+    width: 100%;
+    border: 1px solid var(--border);
+    font-family: var(--font-body);
+    text-align: left;
+    cursor: pointer;
+  }
+  .search-result:hover { border-color: var(--text-faint); }
+  .search-tag {
+    flex-shrink: 0;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    background: var(--surface-2);
+    padding: 4px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  #searchResults:empty { margin: 0; }
 
   button:focus-visible, select:focus-visible, input:focus-visible,
   textarea:focus-visible, .tile:focus-visible {
@@ -361,6 +410,13 @@
     z-index: 3;
     box-shadow: 0 20px 44px -14px rgba(0,0,0,0.75);
   }
+
+  /* Briefly picks out the tile a search result landed on. */
+  @keyframes tileFlash {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(225,29,51,0); }
+    20%, 60% { box-shadow: 0 0 0 3px var(--accent-hover); }
+  }
+  .tile-flash { animation: tileFlash 1.4s ease; z-index: 3; }
 
   .tile-scrim {
     position: absolute;
@@ -1247,10 +1303,15 @@
     <div class="title-block">
       <h1>What We're <span>Watching</span></h1>
     </div>
-    <button type="button" class="archive-btn" id="openArchive" hidden>
-      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h14v11H3z"/><path d="M2 3h16v3H2zM8 10h4"/></svg>
-      Watched <span class="archive-count" id="archiveCount"></span>
-    </button>
+    <div class="header-actions">
+      <button type="button" class="archive-btn" id="openArchive" hidden>
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h14v11H3z"/><path d="M2 3h16v3H2zM8 10h4"/></svg>
+        Watched <span class="archive-count" id="archiveCount"></span>
+      </button>
+      <button type="button" class="icon-btn" id="openSearch" aria-label="Search">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><path d="M17 17l-4.35-4.35"/></svg>
+      </button>
+    </div>
   </header>
 
   <div class="filters-row">
@@ -1523,6 +1584,23 @@
   </div>
 </div>
 
+<!-- Search -->
+<div class="modal-backdrop" id="searchBackdrop" hidden>
+  <div class="modal fight-modal" role="dialog" aria-modal="true" aria-labelledby="searchTitle" tabindex="-1">
+    <h2 id="searchTitle">Search</h2>
+    <div class="search-line">
+      <input type="text" id="searchInput" placeholder="Search shows and events&hellip;" autocomplete="off" aria-label="Search shows and events">
+    </div>
+    <p class="import-status" id="searchHint">Keep typing&hellip; (2 characters minimum)</p>
+    <div id="searchResults"></div>
+    <div class="modal-actions fight-actions">
+      <div class="right-actions">
+        <button type="button" class="btn-primary" id="searchDone">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script type="module">
   import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
@@ -1738,11 +1816,14 @@
     var showUfcSection = state.section === "all" || state.section === "ufc";
     var showMaybe = state.section === "all" || state.section === "maybe";
 
-    // An event held as coming soon waits in that row until its date lands.
+    // An event held as coming soon normally waits in the Coming Soon row
+    // until its date lands — except when the UFC section is isolated, where
+    // it shows every UFC event regardless of status instead. Each event
+    // still appears in exactly one row at a time.
     var ufcEvents = showUfcSection
-      ? ufcAll.filter(function (s) { return !s.comingSoon; }).sort(byDate)
+      ? (state.section === "ufc" ? ufcAll : ufcAll.filter(function (s) { return !s.comingSoon; })).sort(byDate)
       : [];
-    var ufcComing = showUfcSection ? ufcAll.filter(function (s) { return s.comingSoon; }) : [];
+    var ufcComing = showSoon ? ufcAll.filter(function (s) { return s.comingSoon; }) : [];
 
     // Three buckets, in priority order: undecided, not out yet, on the list.
     var potentialShows = showMaybe
@@ -2004,7 +2085,7 @@
   // which on a phone means the grid slides about while you're mid-edit.
   function syncScrollLock() {
     var open = !backdrop.hidden || !cardBackdrop.hidden || !epBackdrop.hidden ||
-               !archiveBackdrop.hidden || !donePrompt.hidden;
+               !archiveBackdrop.hidden || !donePrompt.hidden || !searchBackdrop.hidden;
     document.documentElement.style.overflow = open ? "hidden" : "";
     document.body.style.overflow = open ? "hidden" : "";
   }
@@ -2034,12 +2115,13 @@
       clearTimeout(suppressTimer);
       return;
     }
-    if (!backdrop.hidden || !cardBackdrop.hidden || !archiveBackdrop.hidden || !epBackdrop.hidden) {
+    if (!backdrop.hidden || !cardBackdrop.hidden || !archiveBackdrop.hidden || !epBackdrop.hidden || !searchBackdrop.hidden) {
       historyPushed = false;
       hideModalDom();
       hideCardDom();
       hideArchiveDom();
       hideEpDom();
+      hideSearchDom();
     }
   });
 
@@ -2365,12 +2447,16 @@
     });
   });
 
+  function setSection(key) {
+    state.section = key;
+    Array.prototype.forEach.call(document.querySelectorAll(".filter-group [data-section]"), function (b) {
+      b.classList.toggle("active", b.getAttribute("data-section") === key);
+    });
+  }
+
   Array.prototype.forEach.call(document.querySelectorAll(".filter-group [data-section]"), function (btn) {
     btn.addEventListener("click", function () {
-      state.section = btn.getAttribute("data-section");
-      Array.prototype.forEach.call(document.querySelectorAll(".filter-group [data-section]"), function (b) {
-        b.classList.toggle("active", b === btn);
-      });
+      setSection(btn.getAttribute("data-section"));
       render();
     });
   });
@@ -2856,6 +2942,146 @@
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && !archiveBackdrop.hidden) closeArchive();
   });
+
+  // ---------- search ----------
+
+  var searchBackdrop = document.getElementById("searchBackdrop");
+  var searchInput = document.getElementById("searchInput");
+  var searchHint = document.getElementById("searchHint");
+  var searchResultsEl = document.getElementById("searchResults");
+
+  // Where an item currently reads as sitting, for the result's section tag.
+  function sectionLabelFor(item) {
+    if (item.archived) return "Watched";
+    if (typeOf(item) === "ufc") return item.comingSoon ? "Coming Soon" : "UFC Events";
+    if (item.potential) return "Potential Watches";
+    if (item.comingSoon) return "Coming Soon";
+    return "On The List";
+  }
+
+  // Every section filter a live item shows up under right now, so tapping
+  // a result only resets the filter when it would otherwise stay hidden.
+  function visibleSectionsFor(item) {
+    if (typeOf(item) === "ufc") return item.comingSoon ? ["all", "soon", "ufc"] : ["all", "ufc"];
+    if (item.potential) return ["all", "maybe"];
+    if (item.comingSoon) return ["all", "soon"];
+    return ["all", "list"];
+  }
+
+  function searchThumbHtml(item) {
+    var style = sourceStyle(item.source);
+    return item.posterUrl
+      ? '<span class="arch-thumb" data-poster="' + escapeHtml(item.posterUrl) + '" ' +
+          'style="background-color:' + style.bg + '"></span>'
+      : '<span class="arch-thumb" style="background-color:' + style.bg +
+          ';color:' + style.text + '">' + escapeHtml(item.name.charAt(0).toUpperCase()) + "</span>";
+  }
+
+  function renderSearch() {
+    var raw = searchInput.value;
+    var q = raw.trim().toLowerCase();
+
+    if (q.length < 2) {
+      searchHint.hidden = false;
+      searchHint.textContent = "Keep typing… (2 characters minimum)";
+      searchResultsEl.innerHTML = "";
+      return;
+    }
+
+    var matches = state.shows.filter(function (s) {
+      return s.name && s.name.toLowerCase().indexOf(q) !== -1;
+    });
+
+    if (!matches.length) {
+      searchHint.hidden = false;
+      searchHint.textContent = "Nothing matches “" + raw.trim() + "”.";
+      searchResultsEl.innerHTML = "";
+      return;
+    }
+
+    searchHint.hidden = true;
+    searchResultsEl.innerHTML = matches.map(function (s) {
+      return '<button type="button" class="arch-row search-result" data-search-id="' + s.id + '">' +
+        searchThumbHtml(s) +
+        '<div class="arch-body"><span class="arch-name">' + escapeHtml(s.name) + "</span></div>" +
+        '<span class="search-tag">' + escapeHtml(sectionLabelFor(s)) + "</span>" +
+      "</button>";
+    }).join("");
+
+    Array.prototype.forEach.call(searchResultsEl.querySelectorAll("[data-search-id]"), function (btn) {
+      btn.addEventListener("click", function () {
+        selectSearchResult(btn.getAttribute("data-search-id"));
+      });
+    });
+
+    applyPosterImages();
+  }
+
+  function selectSearchResult(id) {
+    var item = state.shows.filter(function (s) { return s.id === id; })[0];
+    if (!item) return;
+
+    if (item.archived) {
+      // Hand the already-claimed back-step straight to the archive panel
+      // instead of releasing and re-claiming — releasing here would fire
+      // an async history.back() that a fresh pushState could race.
+      hideSearchDom();
+      purgeId = null;
+      archiveBackdrop.hidden = false;
+      syncScrollLock();
+      renderArchive();
+      archiveModal.focus();
+      setTimeout(function () {
+        var row = archiveList.querySelector('[data-restore="' + id + '"]');
+        if (row) row.closest(".arch-row").scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 60);
+      return;
+    }
+
+    closeSearch();
+
+    if (visibleSectionsFor(item).indexOf(state.section) === -1) {
+      setSection("all");
+    }
+    render();
+
+    setTimeout(function () {
+      var tile = document.querySelector('[data-eps="' + id + '"], [data-card="' + id + '"]');
+      if (!tile) return;
+      tile.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+      tile.classList.add("tile-flash");
+      setTimeout(function () { tile.classList.remove("tile-flash"); }, 1500);
+    }, 60);
+  }
+
+  function openSearch() {
+    searchInput.value = "";
+    renderSearch();
+    claimBackStep();
+    searchBackdrop.hidden = false;
+    syncScrollLock();
+    searchInput.focus();
+  }
+
+  function hideSearchDom() {
+    searchBackdrop.hidden = true;
+    setTimeout(syncScrollLock, 0);
+  }
+
+  function closeSearch() {
+    hideSearchDom();
+    releaseBackStep();
+  }
+
+  document.getElementById("openSearch").addEventListener("click", openSearch);
+  document.getElementById("searchDone").addEventListener("click", closeSearch);
+  searchBackdrop.addEventListener("click", function (e) {
+    if (e.target === searchBackdrop) closeSearch();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !searchBackdrop.hidden) closeSearch();
+  });
+  searchInput.addEventListener("input", renderSearch);
 
   // ---------- fight card ----------
 
