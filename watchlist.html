@@ -1341,6 +1341,11 @@
         <input type="text" id="f-name" placeholder="e.g. Stranger Things" required>
       </div>
 
+      <div class="field show-only" id="labelField">
+        <label for="f-label">Season / round <span class="hint">(optional)</span></label>
+        <input type="text" id="f-label" placeholder="e.g. Round 8 Latvia">
+      </div>
+
       <div class="field">
         <label for="f-source">Where it's on</label>
         <div class="source-row">
@@ -2009,6 +2014,15 @@
   var suppressPop = false;
   var suppressTimer = null;
 
+  // Without this the page carries on scrolling underneath an open panel,
+  // which on a phone means the grid slides about while you're mid-edit.
+  function syncScrollLock() {
+    var open = !backdrop.hidden || !cardBackdrop.hidden || !epBackdrop.hidden ||
+               !archiveBackdrop.hidden || !donePrompt.hidden;
+    document.documentElement.style.overflow = open ? "hidden" : "";
+    document.body.style.overflow = open ? "hidden" : "";
+  }
+
   function claimBackStep() {
     if (historyPushed) return;
     historyPushed = true;
@@ -2254,6 +2268,8 @@
         document.getElementById("f-source-custom").value = show.source;
       }
       document.getElementById("f-poster").value = show.posterUrl || "";
+      document.getElementById("f-label").value =
+        [show.season, show.episode].filter(Boolean).join(" \u00b7 ");
       document.getElementById(show.watchers === "Just Me" ? "w-me" : "w-us").checked = true;
       setFormStatus(show.potential ? "maybe" : (show.comingSoon ? "soon" : "list"));
       releaseField.hidden = isUfc ? false : !show.comingSoon;
@@ -2275,6 +2291,7 @@
     renderLeftActions();
     claimBackStep();
     backdrop.hidden = false;
+    syncScrollLock();
 
     // Adding: jump straight into typing. Editing: land focus on the modal
     // itself so the keyboard doesn't pop up before you've tapped a field.
@@ -2287,6 +2304,7 @@
 
   function hideModalDom() {
     backdrop.hidden = true;
+    setTimeout(syncScrollLock, 0);
     state.editingId = null;
     state.confirmingDelete = false;
     form.reset();
@@ -2446,6 +2464,8 @@
     var data = {
       type: isUfc ? "ufc" : "show",
       potential: potential,
+      season: isUfc ? "" : document.getElementById("f-label").value.trim(),
+      episode: "",
       name: name,
       source: source,
       posterUrl: document.getElementById("f-poster").value.trim(),
@@ -2516,12 +2536,14 @@
         ? "You've watched every fight on the " + item.name + " card. Move it to Watched?"
         : "You've watched every episode of " + item.name + ". Move it to Watched?";
     donePrompt.hidden = false;
+    syncScrollLock();
     document.getElementById("donePromptYes").focus();
   }
 
   function hideDonePrompt() {
     donePrompt.hidden = true;
     promptTargetId = null;
+    setTimeout(syncScrollLock, 0);
   }
 
   document.getElementById("donePromptNo").addEventListener("click", hideDonePrompt);
@@ -2570,12 +2592,14 @@
     dropConfirmNum = null;
     claimBackStep();
     epBackdrop.hidden = false;
+    syncScrollLock();
     renderEpisodes();
     epModal.focus();
   }
 
   function hideEpDom() {
     epBackdrop.hidden = true;
+    setTimeout(syncScrollLock, 0);
     state.epId = null;
     hideDonePrompt();
   }
@@ -2759,12 +2783,14 @@
     purgeId = null;
     claimBackStep();
     archiveBackdrop.hidden = false;
+    syncScrollLock();
     renderArchive();
     archiveModal.focus();
   }
 
   function hideArchiveDom() {
     archiveBackdrop.hidden = true;
+    setTimeout(syncScrollLock, 0);
     purgeId = null;
   }
 
@@ -2990,6 +3016,7 @@
     wikiQuery.value = ev ? ev.name : "";
     claimBackStep();
     cardBackdrop.hidden = false;
+    syncScrollLock();
     renderCard();
     cardModal.focus();
     // An event with no card yet is only useful once it has one.
@@ -2998,6 +3025,7 @@
 
   function hideCardDom() {
     cardBackdrop.hidden = true;
+    setTimeout(syncScrollLock, 0);
     state.cardId = null;
     hideDonePrompt();
     cardResults = null;
