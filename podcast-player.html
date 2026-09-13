@@ -178,8 +178,9 @@ function splitIntoChunks(text, maxLen = 220) {
 // --- Playback ---
 let queue = [];
 let idx = 0;
-let keepAliveTimer = null;
 let userStopped = false;
+let watchdog = null;
+let runToken = 0; // increments each Play press; guards against stale callbacks/timers
 
 function setControls(playing) {
   playBtn.disabled = playing;
@@ -188,29 +189,53 @@ function setControls(playing) {
   pauseBtn.textContent = "⏸ Pause";
 }
 
-function speakNext() {
-  if (userStopped) return;
+function speakNext(myToken) {
+  if (userStopped || myToken !== runToken) return;
+  clearTimeout(watchdog);
+
   if (idx >= queue.length) {
     setStatus("Finished.");
     setProgress(100);
     setControls(false);
-    clearInterval(keepAliveTimer);
     return;
   }
   setStatus(`Reading part ${idx + 1} of ${queue.length}...`);
   setProgress((idx / queue.length) * 100);
 
-  const utter = new SpeechSynthesisUtterance(queue[idx]);
+  const chunkText = queue[idx];
+  const utter = new SpeechSynthesisUtterance(chunkText);
   const chosen = voices.find(v => v.name === voiceSel.value);
   if (chosen) utter.voice = chosen;
   utter.rate = parseFloat(rateInput.value) || 1;
 
-  utter.onend = () => { idx++; speakNext(); };
-  utter.onerror = (e) => {
-    console.warn("Speech error, skipping part:", e);
-    idx++; speakNext();
+  let advanced = false;
+  const advance = () => {
+    if (advanced || myToken !== runToken) return;
+    advanced = true;
+    clearTimeout(watchdog);
+    idx++;
+    // Chaining the next speak() call synchronously from inside onend is what
+    // silently breaks after one chunk on some Chrome/Android builds — a
+    // short delay before the next speak() call avoids it.
+    setTimeout(() => speakNext(myToken), 150);
   };
 
+  utter.onend = advance;
+  utter.onerror = (e) => {
+    console.warn("Speech error, skipping part:", e);
+    advance();
+  };
+
+  // Safety net: if the browser silently drops the utterance and never fires
+  // onend/onerror at all, don't let playback hang forever — move on anyway
+  // after a generous timeout based on how much text this chunk has.
+  const estMs = Math.max(8000, chunkText.length * 130);
+  watchdog = setTimeout(() => {
+    console.warn("Speech watchdog fired — browser didn't report completion, advancing anyway.");
+    advance();
+  }, estMs);
+
+  if (speechSynthesis.paused) speechSynthesis.resume();
   speechSynthesis.speak(utter);
 }
 
@@ -222,20 +247,11 @@ playBtn.addEventListener("click", () => {
   queue = splitIntoChunks(text);
   idx = 0;
   userStopped = false;
+  runToken++;
   setControls(true);
   setProgress(0);
 
-  // Chrome has a known bug where speech silently stops after roughly 15s on
-  // some platforms. Nudging pause/resume periodically keeps it alive.
-  clearInterval(keepAliveTimer);
-  keepAliveTimer = setInterval(() => {
-    if (speechSynthesis.speaking && !speechSynthesis.paused) {
-      speechSynthesis.pause();
-      speechSynthesis.resume();
-    }
-  }, 9000);
-
-  speakNext();
+  speakNext(runToken);
 });
 
 pauseBtn.addEventListener("click", () => {
@@ -250,8 +266,9 @@ pauseBtn.addEventListener("click", () => {
 
 stopBtn.addEventListener("click", () => {
   userStopped = true;
+  runToken++;
+  clearTimeout(watchdog);
   speechSynthesis.cancel();
-  clearInterval(keepAliveTimer);
   setControls(false);
   setStatus("Stopped.");
   setProgress(0);
