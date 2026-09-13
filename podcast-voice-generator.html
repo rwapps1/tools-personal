@@ -84,7 +84,7 @@
 <audio id="player" controls></audio>
 <a id="dl" class="dl" download="podcast.wav">⬇️ Download WAV file</a>
 
-<p class="hint">First generation on a new device downloads a ~90MB voice model over your normal internet connection, so use Wi-Fi if you can. After that it's cached in this browser and later runs are quick. This runs in CPU-only mode (deliberately — GPU mode was faster but produced audible glitches on-device), so the first part especially can take a couple of minutes while the engine warms up; the status line shows a running timer per part so it should never look frozen. Nothing you type or upload is sent anywhere — it all happens locally in this tab.</p>
+<p class="hint">First generation on a new device downloads a ~90MB voice model over your normal internet connection, so use Wi-Fi if you can — that part is cached after the first time. But starting the speech engine itself is a separate step that is <em>not</em> cached — it happens fresh every time you reload this page, and on some phones can take a few minutes with no progress shown by the browser itself (the status line ticks a timer so you can see it's still alive). This runs in CPU-only mode deliberately — GPU mode was faster but produced audible glitches on-device. Once it's running, generating each part of the script is much quicker. Nothing you type or upload is sent anywhere — it all happens locally in this tab.</p>
 
 <script type="module">
 import { KokoroTTS } from "https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm";
@@ -145,16 +145,38 @@ async function ensureModel() {
   ttsDevice = "wasm";
   setProgress(2);
   setStatus("Downloading voice model (first time only, ~90MB)...");
-  tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
-    dtype: "q8",
-    device: "wasm",
-    progress_callback: (p) => {
-      if (p && typeof p.progress === "number") {
-        setProgress(p.progress);
-        setStatus(`Downloading voice model... ${Math.round(p.progress)}%`);
-      }
-    },
-  });
+
+  let downloadDone = false;
+  const t0 = Date.now();
+  // The library only reports progress for the file download. After that it
+  // still has to build the inference engine internally, which can take a
+  // couple of minutes on a phone and reports nothing while it happens. Keep
+  // a visible ticker running the whole time so it never looks frozen.
+  const ticker = setInterval(() => {
+    const secs = Math.round((Date.now() - t0) / 1000);
+    if (downloadDone) {
+      setStatus(`Model downloaded — starting the speech engine... ${secs}s (this first-time setup can take a few minutes on some phones, and happens again each time you reload this page)`);
+    }
+  }, 1000);
+
+  try {
+    tts = await KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+      dtype: "q8",
+      device: "wasm",
+      progress_callback: (p) => {
+        if (p && typeof p.progress === "number") {
+          setProgress(p.progress);
+          if (p.progress < 100) {
+            setStatus(`Downloading voice model... ${Math.round(p.progress)}%`);
+          } else {
+            downloadDone = true;
+          }
+        }
+      },
+    });
+  } finally {
+    clearInterval(ticker);
+  }
   setProgress(100);
   return tts;
 }
