@@ -33,9 +33,14 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--ac);box-
 .rec{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--bd);padding:12px;font:inherit;color:inherit;cursor:pointer;transition:background .12s}
 .rec:last-child{border-bottom:0}
 .rec:hover{background:var(--hv)}
+.rec.sel{background:color-mix(in srgb,var(--ac) 8%,transparent)}
 .rec .m{flex:1;min-width:0}
 .rec .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rec .s{font-size:12.5px;color:var(--mu);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.selbox{width:22px;height:22px;border-radius:7px;border:2px solid var(--bd);flex:none;display:flex;align-items:center;justify-content:center;color:transparent;transition:.12s}
+.rec.sel .selbox{background:var(--acg);border-color:transparent;color:var(--onac)}
+.bulkbar{position:sticky;bottom:0;z-index:6;display:flex;align-items:center;gap:8px;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:color-mix(in srgb,var(--sf) 92%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-top:1px solid var(--bd)}
+.bulkbar .cnt{font-size:13px;font-weight:600;color:var(--mu);flex:1}
 .badge{font-size:12px;font-weight:600;background:var(--chip);color:var(--ac);padding:3px 9px;border-radius:99px;flex:none;max-width:40%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tools{padding:10px 12px;display:flex;flex-direction:column;gap:8px}
 .sortrow{display:flex;gap:8px}
@@ -535,6 +540,96 @@ function deleteRecordChecked(tid,rid,opts){
   return true;
 }
 
+/* Bulk-select "Delete" bar action: deletes every selected record that isn't
+   blocked by a reverse link, reports how many were skipped, and leaves the
+   skipped ones selected (so the user can see and deal with them). Successful
+   deletes get a single combined Undo, same idea as deleteRecordChecked but
+   for many records at once. */
+function bulkDeleteConfirm(tid){
+  const t=Store.table(tid);
+  const v=tv(t);
+  const ids=[...v.sel];
+  if(!ids.length)return;
+  const recs=ids.map(id=>Store.records(tid).find(r=>r.id===id)).filter(Boolean);
+  const blocked=recs.filter(r=>reverseLinks(tid,r.id).length);
+  const ok=recs.filter(r=>!blocked.includes(r));
+  confirmModal({title:'Delete records',msg:blocked.length
+    ?`Delete ${ok.length} of ${recs.length} selected record${recs.length===1?'':'s'}? ${blocked.length} ${blocked.length===1?'is':'are'} linked from other records and will be skipped.`
+    :`Delete ${ok.length} selected record${ok.length===1?'':'s'}?`,
+    onYes:()=>{
+      ok.forEach(r=>Store.deleteRecord(tid,r.id));
+      v.sel=new Set(blocked.map(r=>r.id));
+      if(!blocked.length)v.selMode=false;
+      closeN(1,()=>{
+        renderTable($('#app'));
+        if(ok.length)toast(`${ok.length} deleted`,{label:'Undo',onAction:()=>{
+          ok.forEach(r=>Store.saveRecord(tid,r));
+          renderTable($('#app'));
+          toast('Restored');
+        }});
+        else toast('Nothing deleted — all selected records are linked elsewhere');
+      });
+    }});
+}
+
+/* Bulk-select "Set field" bar action: pick one field and a value, applied to
+   every selected record. Fields marked Unique are excluded from the picker
+   since setting the same value on multiple records would instantly collide;
+   Lookup fields are excluded too (they only make sense derived from a link).
+   Skips (rather than fails) any selected record that's missing the field. */
+function bulkSetFieldModal(tid){
+  const t=Store.table(tid);
+  const v=tv(t);
+  const n=v.sel.size;
+  const opts=t.fields.filter(f=>f.type!=='lookup'&&!f.unique);
+  if(!opts.length){toast('No fields can be bulk-set on this table');return;}
+  let f=opts[0];
+  const valHtml=field=>{
+    if(field.type==='checkbox')return `<label class="chk"><input id="bsv" type="checkbox"> ${esc(field.name)}</label>`;
+    if(field.type==='dropdown')return `<select id="bsv"><option value=""></option>${field.options.map(o=>`<option>${esc(o)}</option>`).join('')}</select>`;
+    if(field.type==='date')return `<input id="bsv" type="date">`;
+    if(field.type==='number')return `<input id="bsv" type="number" step="any" inputmode="decimal">`;
+    if(field.type==='longtext')return `<textarea id="bsv" rows="3"></textarea>`;
+    if(field.type==='link'){
+      const lt=Store.table(field.linkTable);
+      return `<div class="linkpick" data-fid="${field.id}"><input id="bsv" type="text" autocomplete="off" placeholder="${lt?'Search '+esc(lt.name):''}" data-val=""><div class="lpmenu" hidden></div></div>`;
+    }
+    return `<input id="bsv" type="text" autocomplete="off">`;
+  };
+  openModal({title:`Set field on ${n} record${n===1?'':'s'}`,
+    body:`<div class="fld"><label for="bsf">Field</label><select id="bsf">${opts.map(x=>`<option value="${x.id}" ${x.id===f.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div><div class="fld" id="bsvWrap"><label>Value</label>${valHtml(f)}</div><div class="err" id="bserr"></div>`,
+    foot:`<button class="btn" type="button" data-cancel>Cancel</button><button class="btn pri" type="button" data-apply>Apply</button>`,
+    onMount(el){
+      const wireLinkPicker=()=>{const wrap=$('.linkpick',el);if(wrap)setupLinkPicker(wrap,f,()=>{});};
+      wireLinkPicker();
+      $('#bsf',el).onchange=e=>{
+        f=opts.find(x=>x.id===e.target.value);
+        $('#bsvWrap',el).innerHTML=`<label>Value</label>${valHtml(f)}`;
+        wireLinkPicker();
+      };
+      $('[data-cancel]',el).onclick=()=>closeN(1);
+      $('[data-apply]',el).onclick=()=>{
+        const inp=$('#bsv',el);
+        let val;
+        if(f.type==='checkbox')val=inp.checked;
+        else if(f.type==='link')val=inp.dataset.val||'';
+        else if(f.type==='number')val=inp.value===''?'':Number(inp.value);
+        else val=inp.value.trim();
+        if(f.required&&isEmpty(val)){$('#bserr',el).textContent='Enter a value — this field is required.';return;}
+        const now=new Date().toISOString();
+        let applied=0;
+        [...v.sel].forEach(id=>{
+          const rec=Store.records(tid).find(r=>r.id===id);
+          if(!rec)return;
+          Store.saveRecord(tid,Object.assign({},rec,{v:Object.assign({},rec.v,{[f.id]:val}),updated:now}));
+          applied++;
+        });
+        closeN(1,()=>{renderTable($('#app'));toast(`Updated ${applied} record${applied===1?'':'s'}`);});
+      };
+    }
+  });
+}
+
 /* ===== screens ===== */
 const hdr=(t,l,r)=>`<div class="hdr">${l||''}<h1>${t}</h1>${r||''}</div>`;
 const backBtn=act=>`<button class="ib" data-act="${act}" aria-label="Back">${ic('back')}</button>`;
@@ -557,7 +652,7 @@ function renderHome(app){
   const ts=Store.tables();
   const viewCount=ts.reduce((n,t)=>n+Store.views(t.id).length,0);
   document.title='Base';
-  app.innerHTML=hdr('Base','',`<button class="ib" data-act="dataMenu" aria-label="Data and backup">${ic('db')}</button><button class="ib" data-act="tables" aria-label="All tables">${ic('grid')}</button>`)
+  app.innerHTML=hdr('Base','',(ts.length?`<button class="ib" data-act="globalSearch" aria-label="Search everywhere">${ic('search')}</button>`:'')+`<button class="ib" data-act="dataMenu" aria-label="Data and backup">${ic('db')}</button><button class="ib" data-act="tables" aria-label="All tables">${ic('grid')}</button>`)
     +warn()
     +(ts.length?`<div class="qgrid">`+ts.map(t=>{
       const label=singularize(t.name);
@@ -626,7 +721,7 @@ function pickRecordModal(tid){
 const TV={};
 function tv(t){
   let v=TV[t.id];
-  if(!v)v=TV[t.id]={q:'',sf:t.fields[0].id,dir:'asc'};
+  if(!v)v=TV[t.id]={q:'',sf:t.fields[0].id,dir:'asc',selMode:false,sel:new Set()};
   if(!t.fields.some(f=>f.id===v.sf))v.sf=t.fields[0].id;
   return v;
 }
@@ -637,9 +732,11 @@ function renderTable(app){
   const v=tv(t);
   document.title=t.name+' \u00b7 Base';
   app.innerHTML=hdr(esc(t.name),backBtn('home'),
-    `<button class="ib" data-act="reports" aria-label="Reports">${ic('report')}</button><button class="ib" data-act="setup" aria-label="Table setup">${ic('sliders')}</button><button class="ib pri" data-act="addRec" aria-label="Add record">${ic('plus')}</button>`)
+    v.selMode
+      ?`<button class="ib" data-act="selCancel" aria-label="Cancel selection">${ic('x')}</button>`
+      :`<button class="ib" data-act="selStart" aria-label="Select records">${ic('check')}</button><button class="ib" data-act="reports" aria-label="Reports">${ic('report')}</button><button class="ib" data-act="setup" aria-label="Table setup">${ic('sliders')}</button><button class="ib pri" data-act="addRec" aria-label="Add record">${ic('plus')}</button>`)
     +warn()
-    +`<div class="tools"><div class="search">${ic('search',16)}<input id="q" type="search" placeholder="Search records" value="${esc(v.q)}" autocomplete="off"></div><div class="sortrow"><select id="sf" aria-label="Sort by">${t.fields.map(f=>`<option value="${f.id}" ${f.id===v.sf?'selected':''}>Sort: ${esc(f.name)}</option>`).join('')}</select><button class="btn" data-act="toggleDir" aria-label="Sort direction">${ic(v.dir==='asc'?'up':'down',16)}</button></div></div><div class="meta" id="recMeta"></div><div id="recList"></div>`;
+    +`<div class="tools"><div class="search">${ic('search',16)}<input id="q" type="search" placeholder="Search records" value="${esc(v.q)}" autocomplete="off"></div><div class="sortrow"><select id="sf" aria-label="Sort by">${t.fields.map(f=>`<option value="${f.id}" ${f.id===v.sf?'selected':''}>Sort: ${esc(f.name)}</option>`).join('')}</select><button class="btn" data-act="toggleDir" aria-label="Sort direction">${ic(v.dir==='asc'?'up':'down',16)}</button></div></div><div class="meta" id="recMeta"></div><div id="recList"></div><div id="bulkBar"></div>`;
   $('#q').addEventListener('input',e=>{v.q=e.target.value;renderList();});
   $('#sf').addEventListener('change',e=>{v.sf=e.target.value;renderList();});
   renderList();
@@ -657,7 +754,7 @@ function listColumns(t){
   const bf=bfConfigured?t.fields.find(f=>f.id===t.badgeField&&f.type==='dropdown'):null;
   let sf;
   if(t.subtitleFields){
-    sf=t.subtitleFields.map(id=>t.fields.find(f=>f.id===id)).filter(Boolean);
+    sf=t.subtitleFields.map(id=>t.fields.find(f=>f.id===id)).filter(f=>f&&(!bf||f.id!==bf.id));
   }else{
     const rest=t.fields.filter(f=>f.id!==tf.id);
     const autoBadge=bfConfigured?null:rest.find(f=>f.type==='dropdown'&&f.id!==tf.id);
@@ -667,12 +764,13 @@ function listColumns(t){
   return{tf,sf,bf};
 }
 
-function rowHtml(t,r){
+function rowHtml(t,r,selMode,selected){
   const {tf,sf,bf}=listColumns(t);
   const title=fmt(tf,r.v[tf.id])||'Untitled';
   const sub=sf.filter(f=>!isEmpty(r.v[f.id])).map(f=>fmt(f,r.v[f.id])).join(' \u00b7 ');
   const badgeVal=bf?r.v[bf.id]:null;
-  return `<button class="rec" data-act="editRec" data-id="${r.id}"><div class="m"><div class="t">${esc(title)}</div>${sub?`<div class="s">${esc(sub)}</div>`:''}</div>${!isEmpty(badgeVal)?`<span class="badge">${esc(badgeVal)}</span>`:''}</button>`;
+  const act=selMode?'selToggle':'editRec';
+  return `<button class="rec${selected?' sel':''}" data-act="${act}" data-id="${r.id}">${selMode?`<span class="selbox">${ic('check',14)}</span>`:''}<div class="m"><div class="t">${esc(title)}</div>${sub?`<div class="s">${esc(sub)}</div>`:''}</div>${(!selMode&&!isEmpty(badgeVal))?`<span class="badge">${esc(badgeVal)}</span>`:''}</button>`;
 }
 
 function renderList(){
@@ -689,11 +787,30 @@ function renderList(){
   if(!total){
     L.className='';
     L.innerHTML=`<div class="empty"><h2>Add your first record</h2><p>Tap the plus button to start.</p><button class="btn pri" data-act="addRec">${ic('plus',16)} Add record</button></div>`;
+    renderBulkBar(t,[]);
     return;
   }
-  if(!recs.length){L.className='';L.innerHTML='<div class="empty">No records match your search.</div>';return;}
+  if(!recs.length){L.className='';L.innerHTML='<div class="empty">No records match your search.</div>';renderBulkBar(t,[]);return;}
   L.className='list';
-  L.innerHTML=recs.map(r=>rowHtml(t,r)).join('');
+  L.innerHTML=recs.map(r=>rowHtml(t,r,v.selMode,v.sel.has(r.id))).join('');
+  renderBulkBar(t,recs);
+}
+
+/* Bottom action bar shown while a table's list is in selection mode (toggled
+   via the header's Select button). Shows how many of the currently-visible
+   (filtered) records are selected, a select-all/none toggle, and the bulk
+   actions themselves. Selection (tv(t).sel) is a Set of record ids and
+   persists across a re-render (e.g. while typing in the field-value modal)
+   but is cleared whenever selection mode is turned off. */
+function renderBulkBar(t,visibleRecs){
+  const v=tv(t);
+  const bar=$('#bulkBar');
+  if(!bar)return;
+  if(!v.selMode){bar.className='';bar.innerHTML='';return;}
+  bar.className='bulkbar';
+  const n=v.sel.size;
+  const allVisibleSelected=visibleRecs.length>0&&visibleRecs.every(r=>v.sel.has(r.id));
+  bar.innerHTML=`<span class="cnt">${n} selected</span><button class="btn" type="button" data-act="selAll">${allVisibleSelected?'None':'All'}</button><button class="btn" type="button" data-act="selSetField" ${n?'':'disabled'}>${ic('edit',16)} Set field</button><button class="btn dn" type="button" data-act="selDelete" ${n?'':'disabled'}>${ic('trash',16)} Delete</button>`;
 }
 
 /* ===== record modal ===== */
@@ -936,10 +1053,18 @@ function tableModal(tid){
       function renderListCols(){
         const dropdowns=draft.fields.filter(f=>f.type==='dropdown');
         const tfId=draft.titleField&&draft.fields.some(f=>f.id===draft.titleField)?draft.titleField:draft.fields[0].id;
-        const subIds=draft.subtitleFields?draft.subtitleFields.filter(id=>draft.fields.some(f=>f.id===id)):[];
-        lc.innerHTML=`<div class="card" style="margin:0 0 8px"><div class="fld" style="margin-bottom:10px"><label for="lctf">Title</label><select id="lctf">${draft.fields.map(f=>`<option value="${f.id}" ${f.id===tfId?'selected':''}>${esc(f.name||'(unnamed)')}</option>`).join('')}</select></div><div class="fld" style="margin-bottom:${dropdowns.length?'10px':'0'}"><div class="lab">Subtitle (choose up to 3)</div><div class="chips">${draft.fields.filter(f=>f.id!==tfId).map(f=>`<button type="button" class="chip ${subIds.includes(f.id)?'on':''}" data-subf="${f.id}">${esc(f.name||'(unnamed)')}</button>`).join('')}</div></div>${dropdowns.length?`<div class="fld" style="margin-bottom:0"><label for="lcbf">Badge</label><select id="lcbf"><option value="">None</option>${dropdowns.map(f=>`<option value="${f.id}" ${f.id===draft.badgeField?'selected':''}>${esc(f.name||'(unnamed)')}</option>`).join('')}</select></div>`:''}</div>`;
+        const subIds=draft.subtitleFields?draft.subtitleFields.filter(id=>draft.fields.some(f=>f.id===id)&&id!==draft.badgeField):[];
+        // The badge field is left out of the subtitle chip choices entirely —
+        // showing the same dropdown value twice (once as text, once as the
+        // badge) would just look like a glitch, not a deliberate choice.
+        const subChoices=draft.fields.filter(f=>f.id!==tfId&&f.id!==draft.badgeField);
+        lc.innerHTML=`<div class="card" style="margin:0 0 8px"><div class="fld" style="margin-bottom:10px"><label for="lctf">Title</label><select id="lctf">${draft.fields.map(f=>`<option value="${f.id}" ${f.id===tfId?'selected':''}>${esc(f.name||'(unnamed)')}</option>`).join('')}</select></div><div class="fld" style="margin-bottom:${dropdowns.length?'10px':'0'}"><div class="lab">Subtitle (choose up to 3)</div><div class="chips">${subChoices.map(f=>`<button type="button" class="chip ${subIds.includes(f.id)?'on':''}" data-subf="${f.id}">${esc(f.name||'(unnamed)')}</button>`).join('')}</div></div>${dropdowns.length?`<div class="fld" style="margin-bottom:0"><label for="lcbf">Badge</label><select id="lcbf"><option value="">None</option>${dropdowns.map(f=>`<option value="${f.id}" ${f.id===draft.badgeField?'selected':''}>${esc(f.name||'(unnamed)')}</option>`).join('')}</select></div>`:''}</div>`;
         $('#lctf',lc).onchange=e=>{draft.titleField=e.target.value;if(draft.subtitleFields)draft.subtitleFields=draft.subtitleFields.filter(id=>id!==e.target.value);renderListCols();};
-        const bfSel=$('#lcbf',lc);if(bfSel)bfSel.onchange=e=>{draft.badgeField=e.target.value;};
+        const bfSel=$('#lcbf',lc);if(bfSel)bfSel.onchange=e=>{
+          draft.badgeField=e.target.value;
+          if(draft.subtitleFields)draft.subtitleFields=draft.subtitleFields.filter(id=>id!==draft.badgeField);
+          renderListCols();
+        };
         $$('.chip',lc).forEach(b=>b.onclick=()=>{
           if(!draft.subtitleFields)draft.subtitleFields=subIds;
           const id=b.dataset.subf,i=draft.subtitleFields.indexOf(id);
@@ -958,12 +1083,12 @@ function tableModal(tid){
           const i=+mv.closest('.frow').dataset.i,j=i+ +mv.dataset.mv;
           if(j<0||j>=draft.fields.length)return;
           const tmp=draft.fields[i];draft.fields[i]=draft.fields[j];draft.fields[j]=tmp;
-          renderFields();
+          renderFields();renderListCols();
         }else if(rm){
           sync();
           if(draft.fields.length===1){toast('A table needs at least one field');return;}
           draft.fields.splice(+rm.closest('.frow').dataset.i,1);
-          renderFields();
+          renderFields();renderListCols();
         }
       });
       fl.addEventListener('change',e=>{
@@ -973,13 +1098,14 @@ function tableModal(tid){
             const row=e.target.closest('.frow');
             draft.fields[+row.dataset.i].srcField='';
           }else sync();
-          renderFields();
+          renderFields();renderListCols();
         }
       });
+      fl.addEventListener('blur',e=>{if(e.target.classList&&e.target.classList.contains('fn')){sync();renderListCols();}},true);
       $('#af',el).onclick=()=>{
         sync();
         draft.fields.push({id:uid(),name:'',type:'text',required:false,unique:false,options:[],linkTable:'',via:'',srcField:'',isNew:true});
-        renderFields();
+        renderFields();renderListCols();
         const ins=$$('.fn',el);ins[ins.length-1].focus();
       };
       $('[data-cancel]',el).onclick=()=>closeN(1);
@@ -1226,6 +1352,47 @@ function renderReports(app){
   $('#rprint').onclick=()=>printReport(t,s);
 }
 
+/* Home screen's global search: searches every table's records at once (same
+   multi-field matching as a single table's search box, via recText), grouped
+   by table, capped per table so one huge table can't drown out the rest.
+   Picking a result opens it in recordModal, stacked over this modal like the
+   reverse-link rows and the Edit-picker do. */
+function globalSearchModal(){
+  const PER_TABLE=8;
+  openModal({
+    title:'Search everywhere',
+    body:`<div class="search">${ic('search',16)}<input id="gq" type="search" placeholder="Search all tables" autocomplete="off"></div><div class="meta" id="gMeta" style="padding-left:0"></div><div id="gList"></div>`,
+    onMount(el){
+      const q=$('#gq',el);
+      function draw(){
+        const query=q.value.trim().toLowerCase();
+        const L=$('#gList',el);
+        if(!query){$('#gMeta',el).textContent='';L.className='';L.innerHTML='<div class="empty">Type to search across every table.</div>';return;}
+        const ts=Store.tables();
+        let totalHits=0;
+        const groups=ts.map(t=>{
+          const hits=Store.records(t.id).filter(r=>recText(t,r).includes(query));
+          totalHits+=hits.length;
+          return {t,hits:hits.slice(0,PER_TABLE),total:hits.length};
+        }).filter(g=>g.hits.length);
+        $('#gMeta',el).textContent=totalHits?`${totalHits} match${totalHits===1?'':'es'}`:'';
+        if(!groups.length){L.className='';L.innerHTML='<div class="empty">No matches.</div>';return;}
+        L.className='';
+        L.innerHTML=groups.map(g=>`<div class="viewgroup" data-tid="${g.t.id}"><h4>${esc(g.t.name)}${g.total>g.hits.length?` (showing ${g.hits.length} of ${g.total})`:''}</h4><div class="list">${g.hits.map(r=>rowHtml(g.t,r)).join('').replaceAll('data-act="editRec"','data-act="gopen"')}</div></div>`).join('');
+      }
+      q.addEventListener('input',draw);
+      $('#gList',el).addEventListener('click',e=>{
+        const b=e.target.closest('[data-act=gopen]');
+        if(!b)return;
+        e.stopPropagation();
+        const tid=b.closest('.viewgroup').dataset.tid;
+        recordModal(tid,b.dataset.id);
+      });
+      if(window.matchMedia&&matchMedia('(pointer:fine)').matches)q.focus();
+    }
+  });
+}
+
 /* Home screen's "Saved reports" quick-access: lists every saved view across
    every table, grouped by table. Picking one loads that view's fields/
    filters/sort into the report state (rs()) and jumps straight to the
@@ -1306,10 +1473,29 @@ const ACT={
   qadd:el=>recordModal(el.dataset.id,null),
   qedit:el=>pickRecordModal(el.dataset.id),
   savedReports:()=>savedReportsModal(),
+  globalSearch:()=>globalSearchModal(),
   setup:()=>tableModal(route.tableId),
   reports:()=>go({name:'reports',tableId:route.tableId}),
   backTable:()=>go({name:'table',tableId:route.tableId}),
-  toggleDir:()=>{const t=Store.table(route.tableId);const v=tv(t);v.dir=v.dir==='asc'?'desc':'asc';renderTable($('#app'));}
+  toggleDir:()=>{const t=Store.table(route.tableId);const v=tv(t);v.dir=v.dir==='asc'?'desc':'asc';renderTable($('#app'));},
+  selStart:()=>{const t=Store.table(route.tableId);const v=tv(t);v.selMode=true;v.sel=new Set();renderTable($('#app'));},
+  selCancel:()=>{const t=Store.table(route.tableId);const v=tv(t);v.selMode=false;v.sel=new Set();renderTable($('#app'));},
+  selToggle:el=>{
+    const t=Store.table(route.tableId),v=tv(t),id=el.dataset.id;
+    if(v.sel.has(id))v.sel.delete(id);else v.sel.add(id);
+    renderList();
+  },
+  selAll:()=>{
+    const t=Store.table(route.tableId),v=tv(t);
+    let recs=Store.records(t.id);
+    const q=v.q.trim().toLowerCase();
+    if(q)recs=recs.filter(r=>recText(t,r).includes(q));
+    const allSelected=recs.length>0&&recs.every(r=>v.sel.has(r.id));
+    v.sel=allSelected?new Set():new Set(recs.map(r=>r.id));
+    renderList();
+  },
+  selSetField:()=>bulkSetFieldModal(route.tableId),
+  selDelete:()=>bulkDeleteConfirm(route.tableId)
 };
 document.addEventListener('click',e=>{
   const el=e.target.closest('[data-act]');
