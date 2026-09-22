@@ -61,6 +61,12 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--ac);outline-offs
 .err:empty{display:none}
 .chk{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--tx)}
 .hint{font-size:12.5px;color:var(--mu);margin:10px 0 0}
+.revlinks{margin-top:16px;padding-top:12px;border-top:1px solid var(--bd)}
+.revgroup{margin-bottom:10px}
+.revgroup:last-child{margin-bottom:0}
+.revgroup .lab{margin-bottom:6px}
+.revrow{border:1px solid var(--bd);border-radius:8px;margin-bottom:6px}
+.revrow:last-child{margin-bottom:0}
 .linkpick{position:relative}
 .lpmenu{position:absolute;left:0;right:0;top:calc(100% + 2px);z-index:2;background:var(--sf);border:1px solid var(--bd);border-radius:8px;max-height:180px;overflow:auto;box-shadow:0 4px 14px rgba(0,0,0,.12)}
 .lpopt{display:block;width:100%;text-align:left;background:none;border:0;padding:8px 10px;font:inherit;font-size:14px;color:var(--tx);cursor:pointer}
@@ -170,7 +176,7 @@ const Store={
 };
 
 /* ===== helpers ===== */
-const TYPES={text:'Text',longtext:'Long text',number:'Number',date:'Date',dropdown:'Dropdown',checkbox:'Tick box',link:'Link to another table'};
+const TYPES={text:'Text',longtext:'Long text',number:'Number',date:'Date',dropdown:'Dropdown',checkbox:'Tick box',link:'Link to another table',lookup:'Pull in from a link'};
 const OPS={
   text:[['contains','contains'],['eq','equals'],['neq','does not equal'],['empty','is empty'],['nempty','is not empty']],
   number:[['eq','='],['neq','\u2260'],['gt','>'],['lt','<'],['gte','\u2265'],['lte','\u2264'],['empty','is empty'],['nempty','is not empty']],
@@ -180,7 +186,15 @@ const OPS={
 };
 OPS.longtext=OPS.text;
 OPS.link=[['eq','is'],['neq','is not'],['empty','is empty'],['nempty','is not empty']];
+OPS.lookup=[['contains','contains'],['eq','equals'],['neq','does not equal'],['gt','>'],['lt','<'],['empty','is empty'],['nempty','is not empty']];
 const noVal=op=>['empty','nempty','ticked','unticked'].includes(op);
+
+/* Fields on a table that make sense as (a) search targets in a link picker, or
+   (b) the source of a Lookup field: anything with a plain scalar value. Link and
+   lookup fields are excluded from the lookup source list (no chaining), but link
+   fields ARE searchable (their resolved display text is included). */
+function textSearchFields(t){return t.fields.filter(f=>f.type!=='checkbox');}
+function lookupSourceFields(t){return t.fields.filter(f=>f.type!=='link'&&f.type!=='lookup'&&f.type!=='checkbox');}
 
 /* Link fields store the linked record's id in v[f.id]. linkLabel resolves it to
    display text (the linked table's first field), or '(deleted)' if the target
@@ -194,9 +208,24 @@ function linkLabel(f,id){
   return fmt(lt.fields[0],lr.v[lt.fields[0].id])||'Untitled';
 }
 
+/* Every field/record pair on the linked table, used to search a link picker
+   beyond just the title field (so e.g. surname matches even when the title
+   field shown is first name). */
+function linkSearchText(lt,lr){
+  return textSearchFields(lt).map(f=>fmt(f,lr.v[f.id])).join(' ').toLowerCase();
+}
+
+/* Lookup fields snapshot {via, srcField, value, label} at save time (see
+   recordModal). They display their stored label/value and don't re-resolve
+   live, per the "snapshot at time of sale" behaviour. */
 function fmt(f,v,csv){
   if(f.type==='checkbox')return v?'Yes':'No';
   if(f.type==='link')return linkLabel(f,v);
+  if(f.type==='lookup'){
+    if(!v||isEmpty(v.value))return '';
+    if(csv)return String(v.value);
+    return v.label!==undefined?v.label:String(v.value);
+  }
   if(isEmpty(v))return '';
   if(f.type==='date'){
     if(csv)return String(v);
@@ -210,17 +239,59 @@ function fmt(f,v,csv){
   return String(v);
 }
 
+/* Finds every table with a Link field pointing at table `tid`, and every record
+   in those tables whose link field currently points at record `rid`. Used to
+   show a read-only "Linked from X" section on a record so e.g. a Client shows
+   its Sales, without needing anything configured on the Client side. */
+function reverseLinks(tid,rid){
+  const out=[];
+  Store.tables().forEach(ot=>{
+    if(ot.id===tid)return;
+    ot.fields.filter(f=>f.type==='link'&&f.linkTable===tid).forEach(f=>{
+      const recs=Store.records(ot.id).filter(r=>r.v[f.id]===rid);
+      if(recs.length)out.push({table:ot,field:f,recs:recs});
+    });
+  });
+  return out;
+}
+
+/* Computes a lookup field's current snapshot: given the lookup field's config
+   (via = id of the link field on this same table, srcField = id of the field
+   to copy on the linked table) and that link field's current value (a linked
+   record id), returns {value, label} read from the linked record right now,
+   or null if there's nothing to copy yet. Stored on the record at save time;
+   see the "snapshot at time of sale" behaviour in recordModal. */
+function computeLookup(lookupField,linkFieldId,t){
+  const viaField=t.fields.find(f=>f.id===lookupField.via);
+  if(!viaField||viaField.type!=='link')return null;
+  const linkedId=linkFieldId;
+  if(isEmpty(linkedId))return null;
+  const lt=Store.table(viaField.linkTable);
+  if(!lt)return null;
+  const lr=Store.records(lt.id).find(r=>r.id===linkedId);
+  if(!lr)return null;
+  const srcField=lt.fields.find(f=>f.id===lookupField.srcField);
+  if(!srcField)return null;
+  const raw=lr.v[srcField.id];
+  if(isEmpty(raw))return null;
+  return{value:raw,label:fmt(srcField,raw)};
+}
+
 function match(rec,f,fl){
-  const v=rec.v[f.id],op=fl.op,q=fl.value;
+  let v=rec.v[f.id];
+  const op=fl.op,q=fl.value;
+  const isLookup=f.type==='lookup';
+  if(isLookup)v=v&&!isEmpty(v.value)?v.value:undefined;
   if(op==='empty')return isEmpty(v);
   if(op==='nempty')return !isEmpty(v);
   if(op==='ticked')return !!v;
   if(op==='unticked')return !v;
   if(isEmpty(q))return true;
-  if(f.type==='number'){
+  if(f.type==='number'||(isLookup&&typeof v==='number'&&(op==='gt'||op==='lt'||op==='eq'||op==='neq'))){
     if(isEmpty(v))return false;
     const a=Number(v),b=Number(q);
-    return op==='eq'?a===b:op==='neq'?a!==b:op==='gt'?a>b:op==='lt'?a<b:op==='gte'?a>=b:a<=b;
+    if(f.type==='number')return op==='eq'?a===b:op==='neq'?a!==b:op==='gt'?a>b:op==='lt'?a<b:op==='gte'?a>=b:a<=b;
+    return op==='eq'?a===b:op==='neq'?a!==b:op==='gt'?a>b:a<b;
   }
   if(f.type==='date'){
     if(isEmpty(v))return false;
@@ -238,13 +309,14 @@ function sortRecs(list,f,dir){
   if(!f)return list;
   const d=dir==='desc'?-1:1;
   return [...list].sort((a,b)=>{
-    const x=a.v[f.id],y=b.v[f.id];
+    let x=a.v[f.id],y=b.v[f.id];
+    if(f.type==='lookup'){x=x&&!isEmpty(x.value)?x.value:undefined;y=y&&!isEmpty(y.value)?y.value:undefined;}
     const ex=isEmpty(x)&&f.type!=='checkbox',ey=isEmpty(y)&&f.type!=='checkbox';
     if(ex&&ey)return 0;
     if(ex)return 1;
     if(ey)return -1;
     let r;
-    if(f.type==='number')r=Number(x)-Number(y);
+    if(f.type==='number'||(f.type==='lookup'&&typeof x==='number'))r=Number(x)-Number(y);
     else if(f.type==='checkbox')r=(x?1:0)-(y?1:0);
     else if(f.type==='link')r=linkLabel(f,x).localeCompare(linkLabel(f,y),'en-GB',{numeric:true,sensitivity:'base'});
     else r=String(x).localeCompare(String(y),'en-GB',{numeric:true,sensitivity:'base'});
@@ -252,7 +324,7 @@ function sortRecs(list,f,dir){
   });
 }
 
-function recText(t,r){return t.fields.filter(f=>f.type!=='checkbox').map(f=>fmt(f,r.v[f.id])).join(' ').toLowerCase();}
+function recText(t,r){return textSearchFields(t).map(f=>fmt(f,r.v[f.id])).join(' ').toLowerCase();}
 
 function dl(name,text,mime){
   const b=new Blob([text],{type:mime});
@@ -420,14 +492,30 @@ function recordModal(tid,rid){
       const lt=Store.table(f.linkTable);
       const label=lt?linkLabel(f,val):'(table missing)';
       inp=`<div class="linkpick" data-fid="${f.id}"><input id="${id}" type="text" autocomplete="off" placeholder="${lt?'Search '+esc(lt.name):''}" value="${esc(isEmpty(val)?'':label)}" data-val="${esc(isEmpty(val)?'':val)}" ${lt?'':'disabled'}><div class="lpmenu" hidden></div></div>`;
+    }else if(f.type==='lookup'){
+      const viaField=t.fields.find(x=>x.id===f.via);
+      const srcTable=viaField?Store.table(viaField.linkTable):null;
+      const srcField=srcTable?srcTable.fields.find(x=>x.id===f.srcField):null;
+      const display=val&&!isEmpty(val.value)?(val.label!==undefined?val.label:String(val.value)):'';
+      return `<div class="fld"><label>${esc(f.name)}</label><input type="text" value="${esc(display)}" disabled data-lookup="${f.id}"><p class="hint" style="margin-top:4px">${srcField?'Pulled from '+esc(srcTable.name)+' → '+esc(srcField.name):'Source field missing'}</p></div>`;
     }else inp=`<input id="${id}" type="text" value="${esc(isEmpty(val)?'':val)}" autocomplete="off">`;
     return `<div class="fld">${lab}${inp}<div class="err" data-e="${f.id}"></div></div>`;
   }).join('');
+  const revLinks=rec?reverseLinks(tid,rec.id):[];
+  const revHtml=revLinks.length?`<div class="revlinks">${revLinks.map(rl=>`<div class="revgroup"><div class="lab">${esc(rl.table.name)} (${rl.recs.length})</div>${rl.recs.map(rr=>{
+    const f0=rl.table.fields[0];
+    const title=fmt(f0,rr.v[f0.id])||'Untitled';
+    return `<button type="button" class="rec revrow" data-revtable="${rl.table.id}" data-revrec="${rr.id}"><div class="m"><div class="t">${esc(title)}</div></div>${ic('chev',16)}</button>`;
+  }).join('')}</div>`).join('')}</div>`:'';
   openModal({
     title:rec?'Edit record':'Add record',
-    body:`<form id="rf" novalidate>${inputs}<div class="err" id="rerr"></div></form>`,
+    body:`<form id="rf" novalidate>${inputs}<div class="err" id="rerr"></div></form>${revHtml}`,
     foot:`${rec?`<button class="btn dn" type="button" data-del>${ic('trash',16)} Delete</button>`:''}<span class="sp"></span><button class="btn" type="button" data-cancel>Cancel</button><button class="btn pri" type="submit" form="rf">Save</button>`,
     onMount(el){
+      $$('.revrow',el).forEach(b=>b.onclick=()=>{
+        const rtid=b.dataset.revtable,rrid=b.dataset.revrec;
+        closeN(1,()=>recordModal(rtid,rrid));
+      });
       if(window.matchMedia&&matchMedia('(pointer:fine)').matches&&!rec){const first=$('input,select,textarea',el);if(first&&first.type!=='checkbox')first.focus();}
       $('[data-cancel]',el).onclick=()=>closeN(1);
       const del=$('[data-del]',el);
@@ -438,12 +526,33 @@ function recordModal(tid,rid){
           Store.deleteRecord(tid,rid);closeN(2);render();toast('Deleted');
         }});
       };
-      $$('.linkpick',el).forEach(wrap=>setupLinkPicker(wrap,t.fields.find(f=>f.id===wrap.dataset.fid)));
+      // Lookup fields snapshot from their governing link field. lookupVals holds
+      // the live computed {value,label} per lookup field id, recalculated whenever
+      // the link field it depends on changes (see setupLinkPicker's onChange).
+      const lookupVals={};
+      t.fields.filter(f=>f.type==='lookup').forEach(f=>{
+        const viaField=t.fields.find(x=>x.id===f.via);
+        const initLinkVal=viaField?v[viaField.id]:undefined;
+        lookupVals[f.id]=rec?(v[f.id]||null):computeLookup(f,initLinkVal,t);
+      });
+      function refreshLookupsFor(linkFieldId,newLinkVal){
+        t.fields.filter(f=>f.type==='lookup'&&f.via===linkFieldId).forEach(f=>{
+          lookupVals[f.id]=computeLookup(f,newLinkVal,t);
+          const dispInp=$(`[data-lookup="${f.id}"]`,el);
+          if(dispInp)dispInp.value=lookupVals[f.id]?(lookupVals[f.id].label!==undefined?lookupVals[f.id].label:String(lookupVals[f.id].value)):'';
+        });
+      }
+      $$('.linkpick',el).forEach(wrap=>setupLinkPicker(wrap,t.fields.find(f=>f.id===wrap.dataset.fid),refreshLookupsFor));
       $('#rf',el).addEventListener('submit',e=>{
         e.preventDefault();
         $$('.err',el).forEach(x=>x.textContent='');
         const nv={};let ok=true,any=false;
         t.fields.forEach(f=>{
+          if(f.type==='lookup'){
+            nv[f.id]=lookupVals[f.id]||null;
+            if(nv[f.id]&&!isEmpty(nv[f.id].value))any=true;
+            return;
+          }
           const inp=$('#f_'+f.id,el);
           let val;
           if(f.type==='checkbox'){val=inp.checked;if(val)any=true;}
@@ -473,25 +582,33 @@ function recordModal(tid,rid){
 
 /* Wires a link field's text input to a filtered dropdown of the target table's
    records. Selecting an option sets data-val (the record id) on the input;
-   editing the text without picking a new option clears data-val on blur. */
-function setupLinkPicker(wrap,f){
+   editing the text without picking a new option clears data-val on blur.
+   Search matches against every field on the linked table (linkSearchText),
+   not just the title field, so e.g. a surname matches even when the record
+   is titled by first name. onChange(fieldId, newLinkedRecordId) fires after
+   a selection or a clear, so dependent Lookup fields can refresh. */
+function setupLinkPicker(wrap,f,onChange){
   const lt=Store.table(f.linkTable);
   if(!lt)return;
   const inp=$('input',wrap),menu=$('.lpmenu',wrap);
-  const opts=()=>Store.records(lt.id).map(r=>({id:r.id,label:fmt(lt.fields[0],r.v[lt.fields[0].id])||'Untitled'})).sort((a,b)=>a.label.localeCompare(b.label,'en-GB',{sensitivity:'base'}));
+  const opts=()=>Store.records(lt.id).map(r=>({id:r.id,label:fmt(lt.fields[0],r.v[lt.fields[0].id])||'Untitled',search:linkSearchText(lt,r)})).sort((a,b)=>a.label.localeCompare(b.label,'en-GB',{sensitivity:'base'}));
   function draw(){
     const q=inp.value.trim().toLowerCase();
-    const list=opts().filter(o=>!q||o.label.toLowerCase().includes(q)).slice(0,50);
+    const list=opts().filter(o=>!q||o.search.includes(q)).slice(0,50);
     menu.innerHTML=list.length?list.map(o=>`<button type="button" class="lpopt" data-id="${esc(o.id)}">${esc(o.label)}</button>`).join(''):`<div class="lpempty">No matches</div>`;
     menu.hidden=false;
   }
   inp.addEventListener('focus',draw);
-  inp.addEventListener('input',()=>{inp.dataset.val='';draw();});
+  inp.addEventListener('input',()=>{
+    if(inp.dataset.val){inp.dataset.val='';if(onChange)onChange(f.id,'');}
+    draw();
+  });
   menu.addEventListener('mousedown',e=>{
     const b=e.target.closest('.lpopt');if(!b)return;
     e.preventDefault();
     inp.value=b.textContent;inp.dataset.val=b.dataset.id;
     menu.hidden=true;
+    if(onChange)onChange(f.id,b.dataset.id);
   });
   inp.addEventListener('blur',()=>{
     setTimeout(()=>{
@@ -506,8 +623,8 @@ function tableModal(tid){
   const orig=tid?Store.table(tid):null;
   const hasRecs=!!tid&&Store.records(tid).length>0;
   const draft=orig
-    ?{name:orig.name,fields:orig.fields.map(f=>({id:f.id,name:f.name,type:f.type,required:!!f.required,options:[...(f.options||[])],linkTable:f.linkTable||'',isNew:false}))}
-    :{name:'',fields:[{id:uid(),name:'Name',type:'text',required:true,options:[],linkTable:'',isNew:true}]};
+    ?{name:orig.name,fields:orig.fields.map(f=>({id:f.id,name:f.name,type:f.type,required:!!f.required,options:[...(f.options||[])],linkTable:f.linkTable||'',via:f.via||'',srcField:f.srcField||'',isNew:false}))}
+    :{name:'',fields:[{id:uid(),name:'Name',type:'text',required:true,options:[],linkTable:'',via:'',srcField:'',isNew:true}]};
   const otherTables=Store.tables().filter(x=>x.id!==tid);
   openModal({
     title:orig?'Table setup':'New table',
@@ -517,10 +634,19 @@ function tableModal(tid){
       const fl=$('#fl',el);
       function renderFields(){
         const last=draft.fields.length-1;
+        const linkFields=draft.fields.filter(x=>x.type==='link'&&x.linkTable);
         fl.innerHTML=draft.fields.map((f,i)=>{
           const locked=!f.isNew&&hasRecs;
-          const typeOpts=Object.keys(TYPES).filter(k=>k!=='link'||otherTables.length);
-          return `<div class="frow" data-i="${i}"><div class="fr1"><input class="fn" value="${esc(f.name)}" placeholder="Field name" autocomplete="off"><button class="ib" type="button" data-mv="-1" aria-label="Move up" ${i===0?'disabled':''}>${ic('up',16)}</button><button class="ib" type="button" data-mv="1" aria-label="Move down" ${i===last?'disabled':''}>${ic('down',16)}</button><button class="ib" type="button" data-rm aria-label="Remove field">${ic('trash',16)}</button></div><div class="fr2"><select class="ft" ${locked?'disabled':''}>${typeOpts.map(k=>`<option value="${k}" ${k===f.type?'selected':''}>${TYPES[k]}</option>`).join('')}</select>${f.type!=='checkbox'?`<label class="chk"><input type="checkbox" class="fq" ${f.required?'checked':''}> Required</label>`:''}</div>${f.type==='dropdown'?`<textarea class="fo" rows="2" placeholder="Options, one per line">${esc(f.options.join('\n'))}</textarea>`:''}${f.type==='link'?`<select class="flt2" ${locked?'disabled':''}><option value="">Choose a table…</option>${otherTables.map(x=>`<option value="${x.id}" ${x.id===f.linkTable?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`:''}</div>`;
+          const typeOpts=Object.keys(TYPES).filter(k=>(k!=='link'||otherTables.length)&&(k!=='lookup'||linkFields.length));
+          let lookupUi='';
+          if(f.type==='lookup'){
+            const viaField=linkFields.find(x=>x.id===f.via)||linkFields[0];
+            if(viaField&&!f.via)f.via=viaField.id;
+            const srcTable=viaField?Store.table(viaField.linkTable):null;
+            const srcOpts=srcTable?lookupSourceFields(srcTable):[];
+            lookupUi=`<div class="fr2"><select class="flvia" ${locked?'disabled':''}>${linkFields.map(x=>`<option value="${x.id}" ${x.id===f.via?'selected':''}>via ${esc(x.name)}</option>`).join('')}</select><select class="flsrc" ${locked?'disabled':''}><option value="">Choose a field…</option>${srcOpts.map(x=>`<option value="${x.id}" ${x.id===f.srcField?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>`;
+          }
+          return `<div class="frow" data-i="${i}"><div class="fr1"><input class="fn" value="${esc(f.name)}" placeholder="Field name" autocomplete="off"><button class="ib" type="button" data-mv="-1" aria-label="Move up" ${i===0?'disabled':''}>${ic('up',16)}</button><button class="ib" type="button" data-mv="1" aria-label="Move down" ${i===last?'disabled':''}>${ic('down',16)}</button><button class="ib" type="button" data-rm aria-label="Remove field">${ic('trash',16)}</button></div><div class="fr2"><select class="ft" ${locked?'disabled':''}>${typeOpts.map(k=>`<option value="${k}" ${k===f.type?'selected':''}>${TYPES[k]}</option>`).join('')}</select>${(f.type!=='checkbox'&&f.type!=='lookup')?`<label class="chk"><input type="checkbox" class="fq" ${f.required?'checked':''}> Required</label>`:''}</div>${f.type==='dropdown'?`<textarea class="fo" rows="2" placeholder="Options, one per line">${esc(f.options.join('\n'))}</textarea>`:''}${f.type==='link'?`<select class="flt2" ${locked?'disabled':''}><option value="">Choose a table…</option>${otherTables.map(x=>`<option value="${x.id}" ${x.id===f.linkTable?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`:''}${lookupUi}</div>`;
         }).join('');
       }
       function sync(){
@@ -531,6 +657,8 @@ function tableModal(tid){
           const q=$('.fq',row);f.required=q?q.checked:false;
           const o=$('.fo',row);if(o)f.options=o.value.split('\n').map(s=>s.trim()).filter(Boolean);
           const lk=$('.flt2',row);if(lk)f.linkTable=lk.value;
+          const via=$('.flvia',row);if(via)f.via=via.value;
+          const src=$('.flsrc',row);if(src)f.srcField=src.value;
           const ty=$('.ft',row);if(ty&&!ty.disabled)f.type=ty.value;
         });
       }
@@ -552,11 +680,18 @@ function tableModal(tid){
         }
       });
       fl.addEventListener('change',e=>{
-        if(e.target.classList.contains('ft')||e.target.classList.contains('flt2')){sync();renderFields();}
+        if(e.target.matches('.ft,.flt2,.flvia')){
+          if(e.target.classList.contains('flvia')){
+            sync();
+            const row=e.target.closest('.frow');
+            draft.fields[+row.dataset.i].srcField='';
+          }else sync();
+          renderFields();
+        }
       });
       $('#af',el).onclick=()=>{
         sync();
-        draft.fields.push({id:uid(),name:'',type:'text',required:false,options:[],linkTable:'',isNew:true});
+        draft.fields.push({id:uid(),name:'',type:'text',required:false,options:[],linkTable:'',via:'',srcField:'',isNew:true});
         renderFields();
         const ins=$$('.fn',el);ins[ins.length-1].focus();
       };
@@ -579,11 +714,12 @@ function tableModal(tid){
         if(new Set(names).size!==names.length){err.textContent='Field names must be different.';return;}
         if(draft.fields.some(f=>f.type==='dropdown'&&!f.options.length)){err.textContent='Add at least one option to each dropdown.';return;}
         if(draft.fields.some(f=>f.type==='link'&&!f.linkTable)){err.textContent='Choose a table for each link field.';return;}
+        if(draft.fields.some(f=>f.type==='lookup'&&(!f.via||!f.srcField))){err.textContent='Choose a link and a field to pull in for each lookup field.';return;}
         const removed=orig?orig.fields.filter(f=>!draft.fields.some(d=>d.id===f.id)):[];
         const loss=removed.length&&Store.records(tid).some(r=>removed.some(f=>!isEmpty(r.v[f.id])));
         const apply=()=>{
           const t={id:orig?orig.id:uid(),name:name,created:orig?orig.created:new Date().toISOString(),
-            fields:draft.fields.map(f=>({id:f.id,name:f.name.trim(),type:f.type,required:f.type==='checkbox'?false:f.required,options:f.type==='dropdown'?f.options:[],linkTable:f.type==='link'?f.linkTable:''}))};
+            fields:draft.fields.map(f=>({id:f.id,name:f.name.trim(),type:f.type,required:(f.type==='checkbox'||f.type==='lookup')?false:f.required,options:f.type==='dropdown'?f.options:[],linkTable:f.type==='link'?f.linkTable:'',via:f.type==='lookup'?f.via:'',srcField:f.type==='lookup'?f.srcField:''}))};
           Store.saveTable(t);
           if(orig&&removed.length){
             Store.records(tid).forEach(r=>removed.forEach(f=>delete r.v[f.id]));
