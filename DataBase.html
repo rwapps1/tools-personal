@@ -367,6 +367,7 @@ function openModal(o){
   return m;
 }
 
+let pendingSeq=0;
 function closeN(n,cb){
   n=Math.min(n,modals.length);
   if(!n){if(cb)cb();return;}
@@ -374,19 +375,31 @@ function closeN(n,cb){
   for(let i=target;i<modals.length;i++)modals[i].el.classList.add('closing');
   const finish=()=>{while(modals.length>target)modals.pop().el.remove();};
   if(noHist){finish();if(cb)cb();return;}
-  pending=cb||null;
+  // myId identifies THIS request. pending/pendingSeq together track the one
+  // request still awaiting its popstate: whichever of popstate or the 400ms
+  // fallback timeout runs first "claims" it (by clearing pending) and the
+  // other becomes a no-op. This stops the timeout from tearing down a NEW
+  // modal that cb() opened after popstate already ran it (cb can call
+  // openModal, which pushes its own history state before this request's
+  // fallback timer fires) and stops a stale request's timeout acting after
+  // a newer closeN call has already taken over `pending`.
+  const myId=++pendingSeq;
+  pending={id:myId,cb:cb||null};
   history.go(-n);
   setTimeout(()=>{
-    if(modals.length>target){finish();const f=pending;pending=null;if(f)f();}
+    if(!pending||pending.id!==myId)return;
+    pending=null;
+    if(modals.length>target)finish();
+    if(cb)cb();
   },400);
 }
 
 window.addEventListener('popstate',e=>{
   const s=e.state||{route:{name:'home'},d:0};
   while(modals.length>(s.d||0))modals.pop().el.remove();
-  const f=pending;pending=null;
   if(s.route&&JSON.stringify(s.route)!==JSON.stringify(route)){route=s.route;render();window.scrollTo(0,0);}
-  if(f)f();
+  const p=pending;
+  if(p){pending=null;if(p.cb)p.cb();}
 });
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modals.length)closeN(1);});
 
@@ -512,9 +525,14 @@ function recordModal(tid,rid){
     body:`<form id="rf" novalidate>${inputs}<div class="err" id="rerr"></div></form>${revHtml}`,
     foot:`${rec?`<button class="btn dn" type="button" data-del>${ic('trash',16)} Delete</button>`:''}<span class="sp"></span><button class="btn" type="button" data-cancel>Cancel</button><button class="btn pri" type="submit" form="rf">Save</button>`,
     onMount(el){
+      // Opens the linked record ON TOP of this one (stacked, like any nested
+      // modal) rather than closing this one first — closing first would pop
+      // this modal's history entry and then push a new one for the linked
+      // record, discarding that entry, so hardware back would skip past this
+      // record straight to the table underneath instead of returning here.
       $$('.revrow',el).forEach(b=>b.onclick=()=>{
         const rtid=b.dataset.revtable,rrid=b.dataset.revrec;
-        closeN(1,()=>recordModal(rtid,rrid));
+        recordModal(rtid,rrid);
       });
       if(window.matchMedia&&matchMedia('(pointer:fine)').matches&&!rec){const first=$('input,select,textarea',el);if(first&&first.type!=='checkbox')first.focus();}
       $('[data-cancel]',el).onclick=()=>closeN(1);
