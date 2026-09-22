@@ -61,6 +61,11 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--ac);outline-offs
 .err:empty{display:none}
 .chk{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--tx)}
 .hint{font-size:12.5px;color:var(--mu);margin:10px 0 0}
+.linkpick{position:relative}
+.lpmenu{position:absolute;left:0;right:0;top:calc(100% + 2px);z-index:2;background:var(--sf);border:1px solid var(--bd);border-radius:8px;max-height:180px;overflow:auto;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+.lpopt{display:block;width:100%;text-align:left;background:none;border:0;padding:8px 10px;font:inherit;font-size:14px;color:var(--tx);cursor:pointer}
+.lpopt:hover{background:var(--hv)}
+.lpempty{padding:8px 10px;font-size:13px;color:var(--mu)}
 .frow{border:1px solid var(--bd);border-radius:10px;padding:8px;margin-bottom:8px}
 .fr1{display:flex;gap:2px;align-items:center;margin-bottom:6px}
 .fr1 .fn{flex:1}
@@ -165,7 +170,7 @@ const Store={
 };
 
 /* ===== helpers ===== */
-const TYPES={text:'Text',longtext:'Long text',number:'Number',date:'Date',dropdown:'Dropdown',checkbox:'Tick box'};
+const TYPES={text:'Text',longtext:'Long text',number:'Number',date:'Date',dropdown:'Dropdown',checkbox:'Tick box',link:'Link to another table'};
 const OPS={
   text:[['contains','contains'],['eq','equals'],['neq','does not equal'],['empty','is empty'],['nempty','is not empty']],
   number:[['eq','='],['neq','\u2260'],['gt','>'],['lt','<'],['gte','\u2265'],['lte','\u2264'],['empty','is empty'],['nempty','is not empty']],
@@ -174,10 +179,24 @@ const OPS={
   checkbox:[['ticked','is ticked'],['unticked','is not ticked']]
 };
 OPS.longtext=OPS.text;
+OPS.link=[['eq','is'],['neq','is not'],['empty','is empty'],['nempty','is not empty']];
 const noVal=op=>['empty','nempty','ticked','unticked'].includes(op);
+
+/* Link fields store the linked record's id in v[f.id]. linkLabel resolves it to
+   display text (the linked table's first field), or '(deleted)' if the target
+   record no longer exists, or '' if unset / the target table itself is gone. */
+function linkLabel(f,id){
+  if(isEmpty(id))return '';
+  const lt=Store.table(f.linkTable);
+  if(!lt)return '(deleted)';
+  const lr=Store.records(lt.id).find(r=>r.id===id);
+  if(!lr)return '(deleted)';
+  return fmt(lt.fields[0],lr.v[lt.fields[0].id])||'Untitled';
+}
 
 function fmt(f,v,csv){
   if(f.type==='checkbox')return v?'Yes':'No';
+  if(f.type==='link')return linkLabel(f,v);
   if(isEmpty(v))return '';
   if(f.type==='date'){
     if(csv)return String(v);
@@ -207,6 +226,10 @@ function match(rec,f,fl){
     if(isEmpty(v))return false;
     return op==='eq'?v===q:op==='lt'?v<q:v>q;
   }
+  if(f.type==='link'){
+    if(isEmpty(v))return false;
+    return op==='eq'?v===q:v!==q;
+  }
   const a=String(isEmpty(v)?'':v).toLowerCase(),b=String(q).toLowerCase();
   return op==='contains'?a.includes(b):op==='eq'?a===b:a!==b;
 }
@@ -223,6 +246,7 @@ function sortRecs(list,f,dir){
     let r;
     if(f.type==='number')r=Number(x)-Number(y);
     else if(f.type==='checkbox')r=(x?1:0)-(y?1:0);
+    else if(f.type==='link')r=linkLabel(f,x).localeCompare(linkLabel(f,y),'en-GB',{numeric:true,sensitivity:'base'});
     else r=String(x).localeCompare(String(y),'en-GB',{numeric:true,sensitivity:'base'});
     return r*d;
   });
@@ -392,6 +416,10 @@ function recordModal(tid,rid){
       const opts=[...f.options];
       if(!isEmpty(val)&&!opts.includes(val))opts.push(val);
       inp=`<select id="${id}"><option value=""></option>${opts.map(o=>`<option ${o===val?'selected':''}>${esc(o)}</option>`).join('')}</select>`;
+    }else if(f.type==='link'){
+      const lt=Store.table(f.linkTable);
+      const label=lt?linkLabel(f,val):'(table missing)';
+      inp=`<div class="linkpick" data-fid="${f.id}"><input id="${id}" type="text" autocomplete="off" placeholder="${lt?'Search '+esc(lt.name):''}" value="${esc(isEmpty(val)?'':label)}" data-val="${esc(isEmpty(val)?'':val)}" ${lt?'':'disabled'}><div class="lpmenu" hidden></div></div>`;
     }else inp=`<input id="${id}" type="text" value="${esc(isEmpty(val)?'':val)}" autocomplete="off">`;
     return `<div class="fld">${lab}${inp}<div class="err" data-e="${f.id}"></div></div>`;
   }).join('');
@@ -410,6 +438,7 @@ function recordModal(tid,rid){
           Store.deleteRecord(tid,rid);closeN(2);render();toast('Deleted');
         }});
       };
+      $$('.linkpick',el).forEach(wrap=>setupLinkPicker(wrap,t.fields.find(f=>f.id===wrap.dataset.fid)));
       $('#rf',el).addEventListener('submit',e=>{
         e.preventDefault();
         $$('.err',el).forEach(x=>x.textContent='');
@@ -418,7 +447,12 @@ function recordModal(tid,rid){
           const inp=$('#f_'+f.id,el);
           let val;
           if(f.type==='checkbox'){val=inp.checked;if(val)any=true;}
-          else{
+          else if(f.type==='link'){
+            val=inp.dataset.val||'';
+            if(inp.value.trim()==='')val='';
+            if(!isEmpty(val))any=true;
+            if(f.required&&isEmpty(val)){ok=false;$(`[data-e="${f.id}"]`,el).textContent='Required';}
+          }else{
             if(f.type==='number')val=inp.value===''?'':Number(inp.value);
             else val=inp.value.trim();
             if(!isEmpty(val))any=true;
@@ -437,13 +471,44 @@ function recordModal(tid,rid){
   });
 }
 
+/* Wires a link field's text input to a filtered dropdown of the target table's
+   records. Selecting an option sets data-val (the record id) on the input;
+   editing the text without picking a new option clears data-val on blur. */
+function setupLinkPicker(wrap,f){
+  const lt=Store.table(f.linkTable);
+  if(!lt)return;
+  const inp=$('input',wrap),menu=$('.lpmenu',wrap);
+  const opts=()=>Store.records(lt.id).map(r=>({id:r.id,label:fmt(lt.fields[0],r.v[lt.fields[0].id])||'Untitled'})).sort((a,b)=>a.label.localeCompare(b.label,'en-GB',{sensitivity:'base'}));
+  function draw(){
+    const q=inp.value.trim().toLowerCase();
+    const list=opts().filter(o=>!q||o.label.toLowerCase().includes(q)).slice(0,50);
+    menu.innerHTML=list.length?list.map(o=>`<button type="button" class="lpopt" data-id="${esc(o.id)}">${esc(o.label)}</button>`).join(''):`<div class="lpempty">No matches</div>`;
+    menu.hidden=false;
+  }
+  inp.addEventListener('focus',draw);
+  inp.addEventListener('input',()=>{inp.dataset.val='';draw();});
+  menu.addEventListener('mousedown',e=>{
+    const b=e.target.closest('.lpopt');if(!b)return;
+    e.preventDefault();
+    inp.value=b.textContent;inp.dataset.val=b.dataset.id;
+    menu.hidden=true;
+  });
+  inp.addEventListener('blur',()=>{
+    setTimeout(()=>{
+      menu.hidden=true;
+      if(!inp.dataset.val)inp.value='';
+    },150);
+  });
+}
+
 /* ===== table setup modal ===== */
 function tableModal(tid){
   const orig=tid?Store.table(tid):null;
   const hasRecs=!!tid&&Store.records(tid).length>0;
   const draft=orig
-    ?{name:orig.name,fields:orig.fields.map(f=>({id:f.id,name:f.name,type:f.type,required:!!f.required,options:[...(f.options||[])],isNew:false}))}
-    :{name:'',fields:[{id:uid(),name:'Name',type:'text',required:true,options:[],isNew:true}]};
+    ?{name:orig.name,fields:orig.fields.map(f=>({id:f.id,name:f.name,type:f.type,required:!!f.required,options:[...(f.options||[])],linkTable:f.linkTable||'',isNew:false}))}
+    :{name:'',fields:[{id:uid(),name:'Name',type:'text',required:true,options:[],linkTable:'',isNew:true}]};
+  const otherTables=Store.tables().filter(x=>x.id!==tid);
   openModal({
     title:orig?'Table setup':'New table',
     body:`<div class="fld"><label for="tn">Table name</label><input id="tn" type="text" value="${esc(draft.name)}" placeholder="Clients" autocomplete="off"></div><div class="lab">Fields</div><div id="fl"></div><button class="btn" id="af" type="button">${ic('plus',16)} Add field</button><div class="err" id="terr"></div>${hasRecs?'<p class="hint">Field types can\'t be changed once a table has records. Removing a field deletes its data.</p>':''}`,
@@ -454,7 +519,8 @@ function tableModal(tid){
         const last=draft.fields.length-1;
         fl.innerHTML=draft.fields.map((f,i)=>{
           const locked=!f.isNew&&hasRecs;
-          return `<div class="frow" data-i="${i}"><div class="fr1"><input class="fn" value="${esc(f.name)}" placeholder="Field name" autocomplete="off"><button class="ib" type="button" data-mv="-1" aria-label="Move up" ${i===0?'disabled':''}>${ic('up',16)}</button><button class="ib" type="button" data-mv="1" aria-label="Move down" ${i===last?'disabled':''}>${ic('down',16)}</button><button class="ib" type="button" data-rm aria-label="Remove field">${ic('trash',16)}</button></div><div class="fr2"><select class="ft" ${locked?'disabled':''}>${Object.keys(TYPES).map(k=>`<option value="${k}" ${k===f.type?'selected':''}>${TYPES[k]}</option>`).join('')}</select>${f.type!=='checkbox'?`<label class="chk"><input type="checkbox" class="fq" ${f.required?'checked':''}> Required</label>`:''}</div>${f.type==='dropdown'?`<textarea class="fo" rows="2" placeholder="Options, one per line">${esc(f.options.join('\n'))}</textarea>`:''}</div>`;
+          const typeOpts=Object.keys(TYPES).filter(k=>k!=='link'||otherTables.length);
+          return `<div class="frow" data-i="${i}"><div class="fr1"><input class="fn" value="${esc(f.name)}" placeholder="Field name" autocomplete="off"><button class="ib" type="button" data-mv="-1" aria-label="Move up" ${i===0?'disabled':''}>${ic('up',16)}</button><button class="ib" type="button" data-mv="1" aria-label="Move down" ${i===last?'disabled':''}>${ic('down',16)}</button><button class="ib" type="button" data-rm aria-label="Remove field">${ic('trash',16)}</button></div><div class="fr2"><select class="ft" ${locked?'disabled':''}>${typeOpts.map(k=>`<option value="${k}" ${k===f.type?'selected':''}>${TYPES[k]}</option>`).join('')}</select>${f.type!=='checkbox'?`<label class="chk"><input type="checkbox" class="fq" ${f.required?'checked':''}> Required</label>`:''}</div>${f.type==='dropdown'?`<textarea class="fo" rows="2" placeholder="Options, one per line">${esc(f.options.join('\n'))}</textarea>`:''}${f.type==='link'?`<select class="flt2" ${locked?'disabled':''}><option value="">Choose a table…</option>${otherTables.map(x=>`<option value="${x.id}" ${x.id===f.linkTable?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`:''}</div>`;
         }).join('');
       }
       function sync(){
@@ -464,6 +530,7 @@ function tableModal(tid){
           f.name=$('.fn',row).value;
           const q=$('.fq',row);f.required=q?q.checked:false;
           const o=$('.fo',row);if(o)f.options=o.value.split('\n').map(s=>s.trim()).filter(Boolean);
+          const lk=$('.flt2',row);if(lk)f.linkTable=lk.value;
           const ty=$('.ft',row);if(ty&&!ty.disabled)f.type=ty.value;
         });
       }
@@ -485,11 +552,11 @@ function tableModal(tid){
         }
       });
       fl.addEventListener('change',e=>{
-        if(e.target.classList.contains('ft')){sync();renderFields();}
+        if(e.target.classList.contains('ft')||e.target.classList.contains('flt2')){sync();renderFields();}
       });
       $('#af',el).onclick=()=>{
         sync();
-        draft.fields.push({id:uid(),name:'',type:'text',required:false,options:[],isNew:true});
+        draft.fields.push({id:uid(),name:'',type:'text',required:false,options:[],linkTable:'',isNew:true});
         renderFields();
         const ins=$$('.fn',el);ins[ins.length-1].focus();
       };
@@ -511,11 +578,12 @@ function tableModal(tid){
         if(names.some(n=>!n)){err.textContent='Every field needs a name.';return;}
         if(new Set(names).size!==names.length){err.textContent='Field names must be different.';return;}
         if(draft.fields.some(f=>f.type==='dropdown'&&!f.options.length)){err.textContent='Add at least one option to each dropdown.';return;}
+        if(draft.fields.some(f=>f.type==='link'&&!f.linkTable)){err.textContent='Choose a table for each link field.';return;}
         const removed=orig?orig.fields.filter(f=>!draft.fields.some(d=>d.id===f.id)):[];
         const loss=removed.length&&Store.records(tid).some(r=>removed.some(f=>!isEmpty(r.v[f.id])));
         const apply=()=>{
           const t={id:orig?orig.id:uid(),name:name,created:orig?orig.created:new Date().toISOString(),
-            fields:draft.fields.map(f=>({id:f.id,name:f.name.trim(),type:f.type,required:f.type==='checkbox'?false:f.required,options:f.type==='dropdown'?f.options:[]}))};
+            fields:draft.fields.map(f=>({id:f.id,name:f.name.trim(),type:f.type,required:f.type==='checkbox'?false:f.required,options:f.type==='dropdown'?f.options:[],linkTable:f.type==='link'?f.linkTable:''}))};
           Store.saveTable(t);
           if(orig&&removed.length){
             Store.records(tid).forEach(r=>removed.forEach(f=>delete r.v[f.id]));
@@ -614,6 +682,11 @@ function fltRow(t,fl,i){
   let val='';
   if(!noVal(fl.op)){
     if(f.type==='dropdown')val=`<select class="fv"><option value=""></option>${f.options.map(o=>`<option ${o===fl.value?'selected':''}>${esc(o)}</option>`).join('')}</select>`;
+    else if(f.type==='link'){
+      const lt=Store.table(f.linkTable);
+      const opts=lt?Store.records(lt.id).map(r=>({id:r.id,label:fmt(lt.fields[0],r.v[lt.fields[0].id])||'Untitled'})).sort((a,b)=>a.label.localeCompare(b.label,'en-GB',{sensitivity:'base'})):[];
+      val=`<select class="fv"><option value=""></option>${opts.map(o=>`<option value="${esc(o.id)}" ${o.id===fl.value?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
+    }
     else val=`<input class="fv" type="${f.type==='number'?'number':f.type==='date'?'date':'text'}" ${f.type==='number'?'step="any"':''} value="${esc(fl.value)}" placeholder="Value" autocomplete="off">`;
   }
   return `<div class="flt" data-i="${i}"><select class="ff" aria-label="Field">${t.fields.map(x=>`<option value="${x.id}" ${x.id===f.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select><select class="fop" aria-label="Condition">${OPS[f.type].map(o=>`<option value="${o[0]}" ${o[0]===fl.op?'selected':''}>${o[1]}</option>`).join('')}</select><button class="ib" type="button" data-rmf aria-label="Remove filter">${ic('x',16)}</button>${val?`<div class="fvw">${val}</div>`:''}</div>`;
