@@ -214,7 +214,7 @@ const Store={
 };
 
 /* ===== helpers ===== */
-const TYPES={text:'Text',longtext:'Long text',number:'Number',date:'Date',dropdown:'Dropdown',checkbox:'Tick box',link:'Link to another table',lookup:'Pull in from a link'};
+const TYPES={text:'Text',longtext:'Long text',number:'Number',date:'Date',dropdown:'Dropdown',multiselect:'Multi-select',checkbox:'Tick box',link:'Link to another table',lookup:'Pull in from a link',autonum:'Auto-number',formula:'Formula'};
 const OPS={
   text:[['contains','contains'],['eq','equals'],['neq','does not equal'],['empty','is empty'],['nempty','is not empty']],
   number:[['eq','='],['neq','\u2260'],['gt','>'],['lt','<'],['gte','\u2265'],['lte','\u2264'],['empty','is empty'],['nempty','is not empty']],
@@ -225,6 +225,9 @@ const OPS={
 OPS.longtext=OPS.text;
 OPS.link=[['eq','is'],['neq','is not'],['empty','is empty'],['nempty','is not empty']];
 OPS.lookup=[['contains','contains'],['eq','equals'],['neq','does not equal'],['gt','>'],['lt','<'],['empty','is empty'],['nempty','is not empty']];
+OPS.multiselect=[['inc','includes'],['ninc','does not include'],['empty','is empty'],['nempty','is not empty']];
+OPS.autonum=[['eq','='],['neq','≠'],['gt','>'],['lt','<'],['gte','≥'],['lte','≤']];
+OPS.formula=[['eq','='],['neq','≠'],['gt','>'],['lt','<'],['gte','≥'],['lte','≤'],['empty','is empty'],['nempty','is not empty']];
 const noVal=op=>['empty','nempty','ticked','unticked'].includes(op);
 
 /* Fields on a table that make sense as (a) search targets in a link picker, or
@@ -243,19 +246,26 @@ function linkLabel(f,id){
   if(!lt)return '(deleted)';
   const lr=Store.records(lt.id).find(r=>r.id===id);
   if(!lr)return '(deleted)';
-  return fmt(lt.fields[0],lr.v[lt.fields[0].id])||'Untitled';
+  return fmtRec(lt.fields[0],lr,lt)||'Untitled';
 }
 
 /* Every field/record pair on the linked table, used to search a link picker
    beyond just the title field (so e.g. surname matches even when the title
    field shown is first name). */
 function linkSearchText(lt,lr){
-  return textSearchFields(lt).map(f=>fmt(f,lr.v[f.id])).join(' ').toLowerCase();
+  return textSearchFields(lt).map(f=>fmtRec(f,lr,lt)).join(' ').toLowerCase();
 }
 
 /* Lookup fields snapshot {via, srcField, value, label} at save time (see
    recordModal). They display their stored label/value and don't re-resolve
    live, per the "snapshot at time of sale" behaviour. */
+function formatNumber(f,n,csv){
+  if(csv)return String(n);
+  if(f.numFormat==='currency')return (f.currencySymbol||'£')+n.toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2});
+  if(f.numFormat==='percent')return n.toLocaleString('en-GB',{maximumFractionDigits:2})+'%';
+  return n.toLocaleString('en-GB');
+}
+
 function fmt(f,v,csv){
   if(f.type==='checkbox')return v?'Yes':'No';
   if(f.type==='link')return linkLabel(f,v);
@@ -270,11 +280,21 @@ function fmt(f,v,csv){
     const d=new Date(v+'T00:00:00');
     return isNaN(d)?String(v):d.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
   }
-  if(f.type==='number'){
-    if(csv)return String(v);
-    return Number(v).toLocaleString('en-GB');
+  if(f.type==='number'||f.type==='formula')return formatNumber(f,Number(v),csv);
+  if(f.type==='multiselect'){
+    const arr=Array.isArray(v)?v:[];
+    return arr.join(csv?'; ':', ');
   }
   return String(v);
+}
+
+/* Record-aware formatter: use this (not fmt directly) anywhere a field is
+   being displayed from a real record, so Formula fields compute their live
+   value instead of showing blank. Every other field type behaves exactly
+   like fmt(f, rec.v[f.id], csv). */
+function fmtRec(f,rec,t,csv){
+  if(f.type==='formula')return fmt(f,computeFormula(f,rec,t),csv);
+  return fmt(f,rec.v[f.id],csv);
 }
 
 /* Finds every table with a Link field pointing at table `tid`, and every record
@@ -332,25 +352,120 @@ function computeLookup(lookupField,linkFieldId,t){
   if(!lr)return null;
   const srcField=lt.fields.find(f=>f.id===lookupField.srcField);
   if(!srcField)return null;
-  const raw=lr.v[srcField.id];
+  const raw=srcField.type==='formula'?computeFormula(srcField,lr,lt):lr.v[srcField.id];
   if(isEmpty(raw))return null;
   return{value:raw,label:fmt(srcField,raw)};
 }
 
-function match(rec,f,fl){
-  let v=rec.v[f.id];
+/* ===== formula fields =====
+   A Formula field's expression looks like "{Value} * 1.2" or "{Budget} -
+   {Spent}", referencing other fields on the SAME record by name inside
+   braces. Evaluated fresh every time it's displayed (never snapshotted, so
+   it always reflects the record's current values) via a small hand-written
+   tokenizer + recursive-descent parser — never eval()/new Function() on
+   user-entered text. Supports + - * / ( ) unary minus and decimal numbers.
+   A reference to a non-numeric or empty field, a formula that references
+   itself (directly or through a chain), or a syntax error all resolve to
+   null rather than throwing, so a bad formula shows as blank instead of
+   breaking the page. */
+function tokenizeFormula(src){
+  const toks=[];let i=0;
+  while(i<src.length){
+    const c=src[i];
+    if(/\s/.test(c)){i++;continue;}
+    if(c==='{'){const j=src.indexOf('}',i);if(j<0)throw new Error('Unclosed {');toks.push({t:'ref',v:src.slice(i+1,j)});i=j+1;continue;}
+    if(/[0-9.]/.test(c)){let j=i;while(j<src.length&&/[0-9.]/.test(src[j]))j++;toks.push({t:'num',v:Number(src.slice(i,j))});i=j;continue;}
+    if('+-*/()'.includes(c)){toks.push({t:c});i++;continue;}
+    throw new Error('Unexpected character "'+c+'"');
+  }
+  return toks;
+}
+function parseFormula(toks){
+  let pos=0;
+  const peek=()=>toks[pos];
+  const next=()=>toks[pos++];
+  function parseExpr(){
+    let node=parseTerm();
+    while(peek()&&(peek().t==='+'||peek().t==='-')){const op=next().t;node={t:'bin',op,l:node,r:parseTerm()};}
+    return node;
+  }
+  function parseTerm(){
+    let node=parseUnary();
+    while(peek()&&(peek().t==='*'||peek().t==='/')){const op=next().t;node={t:'bin',op,l:node,r:parseUnary()};}
+    return node;
+  }
+  function parseUnary(){
+    if(peek()&&peek().t==='-'){next();return{t:'neg',v:parseUnary()};}
+    return parseAtom();
+  }
+  function parseAtom(){
+    const tok=peek();
+    if(!tok)throw new Error('Unexpected end of formula');
+    if(tok.t==='num'){next();return{t:'num',v:tok.v};}
+    if(tok.t==='ref'){next();return{t:'ref',v:tok.v};}
+    if(tok.t==='('){next();const n=parseExpr();if(!peek()||peek().t!==')')throw new Error('Missing )');next();return n;}
+    throw new Error('Unexpected token');
+  }
+  const node=parseExpr();
+  if(pos!==toks.length)throw new Error('Unexpected trailing input');
+  return node;
+}
+function evalFormulaNode(node,getRef){
+  if(node.t==='num')return node.v;
+  if(node.t==='neg'){const v=evalFormulaNode(node.v,getRef);return v===null?null:-v;}
+  if(node.t==='ref')return getRef(node.v);
+  if(node.t==='bin'){
+    const l=evalFormulaNode(node.l,getRef),r=evalFormulaNode(node.r,getRef);
+    if(l===null||r===null)return null;
+    if(node.op==='+')return l+r;
+    if(node.op==='-')return l-r;
+    if(node.op==='*')return l*r;
+    if(node.op==='/')return r===0?null:l/r;
+  }
+  return null;
+}
+/* Computes a formula field's current value for one record. `stack` guards
+   against a formula that (directly or via a chain of other formula fields)
+   references itself, which would otherwise recurse forever. */
+function computeFormula(f,rec,t,stack){
+  stack=stack||[];
+  if(stack.includes(f.id))return null;
+  let node;
+  try{node=parseFormula(tokenizeFormula(f.formula||''));}catch(e){return null;}
+  const getRef=name=>{
+    const rf=t.fields.find(x=>x.name===name);
+    if(!rf)return null;
+    if(rf.type==='number')return isEmpty(rec.v[rf.id])?null:Number(rec.v[rf.id]);
+    if(rf.type==='autonum')return isEmpty(rec.v[rf.id])?null:Number(rec.v[rf.id]);
+    if(rf.type==='formula')return computeFormula(rf,rec,t,[...stack,f.id]);
+    if(rf.type==='lookup'){
+      const lv=rec.v[rf.id];
+      return lv&&typeof lv.value==='number'?lv.value:null;
+    }
+    return null;
+  };
+  return evalFormulaNode(node,getRef);
+}
+
+function match(rec,f,fl,t){
+  let v=f.type==='formula'?(t?computeFormula(f,rec,t):null):rec.v[f.id];
   const op=fl.op,q=fl.value;
   const isLookup=f.type==='lookup';
   if(isLookup)v=v&&!isEmpty(v.value)?v.value:undefined;
-  if(op==='empty')return isEmpty(v);
-  if(op==='nempty')return !isEmpty(v);
+  const empty=f.type==='multiselect'?!Array.isArray(v)||!v.length:isEmpty(v);
+  if(op==='empty')return empty;
+  if(op==='nempty')return !empty;
   if(op==='ticked')return !!v;
   if(op==='unticked')return !v;
   if(isEmpty(q))return true;
-  if(f.type==='number'||(isLookup&&typeof v==='number'&&(op==='gt'||op==='lt'||op==='eq'||op==='neq'))){
+  if(f.type==='multiselect'){
+    if(empty)return false;
+    return op==='inc'?v.includes(q):!v.includes(q);
+  }
+  if(f.type==='number'||f.type==='autonum'||f.type==='formula'||(isLookup&&typeof v==='number'&&(op==='gt'||op==='lt'||op==='eq'||op==='neq'))){
     if(isEmpty(v))return false;
     const a=Number(v),b=Number(q);
-    if(f.type==='number')return op==='eq'?a===b:op==='neq'?a!==b:op==='gt'?a>b:op==='lt'?a<b:op==='gte'?a>=b:a<=b;
+    if(f.type==='number'||f.type==='autonum'||f.type==='formula')return op==='eq'?a===b:op==='neq'?a!==b:op==='gt'?a>b:op==='lt'?a<b:op==='gte'?a>=b:a<=b;
     return op==='eq'?a===b:op==='neq'?a!==b:op==='gt'?a>b:a<b;
   }
   if(f.type==='date'){
@@ -365,26 +480,30 @@ function match(rec,f,fl){
   return op==='contains'?a.includes(b):op==='eq'?a===b:a!==b;
 }
 
-function sortRecs(list,f,dir){
+function sortRecs(list,f,dir,t){
   if(!f)return list;
   const d=dir==='desc'?-1:1;
   return [...list].sort((a,b)=>{
-    let x=a.v[f.id],y=b.v[f.id];
+    let x=f.type==='formula'?(t?computeFormula(f,a,t):null):a.v[f.id];
+    let y=f.type==='formula'?(t?computeFormula(f,b,t):null):b.v[f.id];
     if(f.type==='lookup'){x=x&&!isEmpty(x.value)?x.value:undefined;y=y&&!isEmpty(y.value)?y.value:undefined;}
-    const ex=isEmpty(x)&&f.type!=='checkbox',ey=isEmpty(y)&&f.type!=='checkbox';
+    const isMulti=f.type==='multiselect';
+    const ex=isMulti?!Array.isArray(x)||!x.length:isEmpty(x)&&f.type!=='checkbox';
+    const ey=isMulti?!Array.isArray(y)||!y.length:isEmpty(y)&&f.type!=='checkbox';
     if(ex&&ey)return 0;
     if(ex)return 1;
     if(ey)return -1;
     let r;
-    if(f.type==='number'||(f.type==='lookup'&&typeof x==='number'))r=Number(x)-Number(y);
+    if(f.type==='number'||f.type==='autonum'||f.type==='formula'||(f.type==='lookup'&&typeof x==='number'))r=Number(x)-Number(y);
     else if(f.type==='checkbox')r=(x?1:0)-(y?1:0);
     else if(f.type==='link')r=linkLabel(f,x).localeCompare(linkLabel(f,y),'en-GB',{numeric:true,sensitivity:'base'});
+    else if(isMulti)r=x.join(', ').localeCompare(y.join(', '),'en-GB',{numeric:true,sensitivity:'base'});
     else r=String(x).localeCompare(String(y),'en-GB',{numeric:true,sensitivity:'base'});
     return r*d;
   });
 }
 
-function recText(t,r){return textSearchFields(t).map(f=>fmt(f,r.v[f.id])).join(' ').toLowerCase();}
+function recText(t,r){return textSearchFields(t).map(f=>fmtRec(f,r,t)).join(' ').toLowerCase();}
 
 function dl(name,text,mime){
   const b=new Blob([text],{type:mime});
@@ -525,7 +644,7 @@ function deleteRecordChecked(tid,rid,opts){
   const blockers=reverseLinks(tid,rid);
   if(blockers.length){
     const f0=t.fields[0];
-    const nm=fmt(f0,rec.v[f0.id])||'This record';
+    const nm=fmtRec(f0,rec,t)||'This record';
     blockedModal('Can’t delete',`${nm} is linked from ${reverseLinkSummary(tid,rid)}. Remove or change those links first, then delete it.`);
     return false;
   }
@@ -581,12 +700,13 @@ function bulkSetFieldModal(tid){
   const t=Store.table(tid);
   const v=tv(t);
   const n=v.sel.size;
-  const opts=t.fields.filter(f=>f.type!=='lookup'&&!f.unique);
+  const opts=t.fields.filter(f=>f.type!=='lookup'&&f.type!=='autonum'&&f.type!=='formula'&&!f.unique);
   if(!opts.length){toast('No fields can be bulk-set on this table');return;}
   let f=opts[0];
   const valHtml=field=>{
     if(field.type==='checkbox')return `<label class="chk"><input id="bsv" type="checkbox"> ${esc(field.name)}</label>`;
     if(field.type==='dropdown')return `<select id="bsv"><option value=""></option>${field.options.map(o=>`<option>${esc(o)}</option>`).join('')}</select>`;
+    if(field.type==='multiselect')return `<div class="chips" id="bsv" data-ms>${field.options.map(o=>`<button type="button" class="chip" data-msopt="${esc(o)}">${esc(o)}</button>`).join('')}</div><p class="hint">Replaces each record's selection with the chips chosen here.</p>`;
     if(field.type==='date')return `<input id="bsv" type="date">`;
     if(field.type==='number')return `<input id="bsv" type="number" step="any" inputmode="decimal">`;
     if(field.type==='longtext')return `<textarea id="bsv" rows="3"></textarea>`;
@@ -596,26 +716,41 @@ function bulkSetFieldModal(tid){
     }
     return `<input id="bsv" type="text" autocomplete="off">`;
   };
+  let msVal=[];
   openModal({title:`Set field on ${n} record${n===1?'':'s'}`,
     body:`<div class="fld"><label for="bsf">Field</label><select id="bsf">${opts.map(x=>`<option value="${x.id}" ${x.id===f.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div><div class="fld" id="bsvWrap"><label>Value</label>${valHtml(f)}</div><div class="err" id="bserr"></div>`,
     foot:`<button class="btn" type="button" data-cancel>Cancel</button><button class="btn pri" type="button" data-apply>Apply</button>`,
     onMount(el){
-      const wireLinkPicker=()=>{const wrap=$('.linkpick',el);if(wrap)setupLinkPicker(wrap,f,()=>{});};
-      wireLinkPicker();
+      const wireField=()=>{
+        const wrap=$('.linkpick',el);if(wrap)setupLinkPicker(wrap,f,()=>{});
+        msVal=[];
+        const msWrap=$('[data-ms]',el);
+        if(msWrap)msWrap.addEventListener('click',e=>{
+          const b=e.target.closest('[data-msopt]');if(!b)return;
+          const opt=b.dataset.msopt,i=msVal.indexOf(opt);
+          if(i>=0)msVal.splice(i,1);else msVal.push(opt);
+          b.classList.toggle('on');
+        });
+      };
+      wireField();
       $('#bsf',el).onchange=e=>{
         f=opts.find(x=>x.id===e.target.value);
         $('#bsvWrap',el).innerHTML=`<label>Value</label>${valHtml(f)}`;
-        wireLinkPicker();
+        wireField();
       };
       $('[data-cancel]',el).onclick=()=>closeN(1);
       $('[data-apply]',el).onclick=()=>{
-        const inp=$('#bsv',el);
         let val;
-        if(f.type==='checkbox')val=inp.checked;
-        else if(f.type==='link')val=inp.dataset.val||'';
-        else if(f.type==='number')val=inp.value===''?'':Number(inp.value);
-        else val=inp.value.trim();
-        if(f.required&&isEmpty(val)){$('#bserr',el).textContent='Enter a value — this field is required.';return;}
+        if(f.type==='multiselect')val=[...msVal];
+        else{
+          const inp=$('#bsv',el);
+          if(f.type==='checkbox')val=inp.checked;
+          else if(f.type==='link')val=inp.dataset.val||'';
+          else if(f.type==='number')val=inp.value===''?'':Number(inp.value);
+          else val=inp.value.trim();
+        }
+        const valEmpty=f.type==='multiselect'?!val.length:isEmpty(val);
+        if(f.required&&valEmpty){$('#bserr',el).textContent='Enter a value — this field is required.';return;}
         const now=new Date().toISOString();
         let applied=0;
         [...v.sel].forEach(id=>{
@@ -693,7 +828,7 @@ function pickRecordModal(tid){
         let recs=Store.records(t.id);
         const total=recs.length;
         if(query)recs=recs.filter(r=>linkSearchText(t,r).includes(query));
-        recs=sortRecs(recs,t.fields[0],'asc').slice(0,50);
+        recs=sortRecs(recs,t.fields[0],'asc',t).slice(0,50);
         $('#pMeta',el).textContent=total?(query?`${recs.length} of ${total}`:`${total} record${total===1?'':'s'}`):'';
         const L=$('#pList',el);
         if(!total){L.className='';L.innerHTML=`<div class="empty"><h2>No records yet</h2><p>Add one from the home screen first.</p></div>`;return;}
@@ -766,9 +901,9 @@ function listColumns(t){
 
 function rowHtml(t,r,selMode,selected){
   const {tf,sf,bf}=listColumns(t);
-  const title=fmt(tf,r.v[tf.id])||'Untitled';
-  const sub=sf.filter(f=>!isEmpty(r.v[f.id])).map(f=>fmt(f,r.v[f.id])).join(' \u00b7 ');
-  const badgeVal=bf?r.v[bf.id]:null;
+  const title=fmtRec(tf,r,t)||'Untitled';
+  const sub=sf.filter(f=>f.type==='formula'||!isEmpty(r.v[f.id])).map(f=>fmtRec(f,r,t)).filter(s=>s!=='').join(' \u00b7 ');
+  const badgeVal=bf?(bf.type==='formula'?fmtRec(bf,r,t):r.v[bf.id]):null;
   const act=selMode?'selToggle':'editRec';
   return `<button class="rec${selected?' sel':''}" data-act="${act}" data-id="${r.id}">${selMode?`<span class="selbox">${ic('check',14)}</span>`:''}<div class="m"><div class="t">${esc(title)}</div>${sub?`<div class="s">${esc(sub)}</div>`:''}</div>${(!selMode&&!isEmpty(badgeVal))?`<span class="badge">${esc(badgeVal)}</span>`:''}</button>`;
 }
@@ -781,7 +916,7 @@ function renderList(){
   const total=recs.length;
   const q=v.q.trim().toLowerCase();
   if(q)recs=recs.filter(r=>recText(t,r).includes(q));
-  recs=sortRecs(recs,t.fields.find(f=>f.id===v.sf),v.dir);
+  recs=sortRecs(recs,t.fields.find(f=>f.id===v.sf),v.dir,t);
   $('#recMeta').textContent=total?(q?`${recs.length} of ${total} records`:`${total} record${total===1?'':'s'}`):'';
   const L=$('#recList');
   if(!total){
@@ -840,13 +975,22 @@ function recordModal(tid,rid,prefill){
       const srcField=srcTable?srcTable.fields.find(x=>x.id===f.srcField):null;
       const display=val&&!isEmpty(val.value)?(val.label!==undefined?val.label:String(val.value)):'';
       return `<div class="fld"><label>${esc(f.name)}</label><input type="text" value="${esc(display)}" disabled data-lookup="${f.id}"><p class="hint" style="margin-top:4px">${srcField?'Pulled from '+esc(srcTable.name)+' → '+esc(srcField.name):'Source field missing'}</p></div>`;
+    }else if(f.type==='autonum'){
+      return `<div class="fld"><label>${esc(f.name)}</label><input type="text" value="${rec&&!isEmpty(val)?esc(String(val)):'Assigned when saved'}" disabled></div>`;
+    }else if(f.type==='formula'){
+      return `<div class="fld"><label>${esc(f.name)}</label><input type="text" value="" disabled data-formula="${f.id}"><p class="hint" style="margin-top:4px">Calculated automatically from other fields.</p></div>`;
+    }else if(f.type==='multiselect'){
+      const sel=Array.isArray(val)?val:[];
+      const opts=[...f.options];
+      sel.forEach(o=>{if(!opts.includes(o))opts.push(o);});
+      return `<div class="fld">${lab}<div class="chips" id="${id}" data-msf="${f.id}">${opts.map(o=>`<button type="button" class="chip ${sel.includes(o)?'on':''}" data-msopt="${esc(o)}">${esc(o)}</button>`).join('')}</div><div class="err" data-e="${f.id}"></div></div>`;
     }else inp=`<input id="${id}" type="text" value="${esc(isEmpty(val)?'':val)}" autocomplete="off">`;
     return `<div class="fld">${lab}${inp}<div class="err" data-e="${f.id}"></div></div>`;
   }).join('');
   const revLinks=rec?reverseLinks(tid,rec.id):[];
   const revHtml=revLinks.length?`<div class="revlinks">${revLinks.map(rl=>`<div class="revgroup"><div class="lab">${esc(rl.table.name)} (${rl.recs.length})</div>${rl.recs.map(rr=>{
     const f0=rl.table.fields[0];
-    const title=fmt(f0,rr.v[f0.id])||'Untitled';
+    const title=fmtRec(f0,rr,rl.table)||'Untitled';
     return `<button type="button" class="rec revrow" data-revtable="${rl.table.id}" data-revrec="${rr.id}"><div class="m"><div class="t">${esc(title)}</div></div>${ic('chev',16)}</button>`;
   }).join('')}</div>`).join('')}</div>`:'';
   openModal({
@@ -868,7 +1012,7 @@ function recordModal(tid,rid,prefill){
       const del=$('[data-del]',el);
       if(del)del.onclick=()=>{
         const f0=t.fields[0];
-        const nm=fmt(f0,rec.v[f0.id])||'this record';
+        const nm=fmtRec(f0,rec,t)||'this record';
         const blockers=reverseLinks(tid,rec.id);
         if(blockers.length){
           blockedModal('Can\u2019t delete',`\u201c${nm}\u201d is linked from ${reverseLinkSummary(tid,rec.id)}. Remove or change those links first, then delete it.`);
@@ -885,7 +1029,7 @@ function recordModal(tid,rid,prefill){
         // live from whichever record the link field ends up pointing at).
         const pv={};
         t.fields.forEach(f=>{
-          if(f.type==='lookup'||f.unique)return;
+          if(f.type==='lookup'||f.type==='autonum'||f.type==='formula'||f.unique)return;
           pv[f.id]=rec.v[f.id];
         });
         closeN(1,()=>recordModal(tid,null,pv));
@@ -905,8 +1049,59 @@ function recordModal(tid,rid,prefill){
           const dispInp=$(`[data-lookup="${f.id}"]`,el);
           if(dispInp)dispInp.value=lookupVals[f.id]?(lookupVals[f.id].label!==undefined?lookupVals[f.id].label:String(lookupVals[f.id].value)):'';
         });
+        if(typeof refreshFormulas==='function')refreshFormulas();
       }
       $$('.linkpick',el).forEach(wrap=>setupLinkPicker(wrap,t.fields.find(f=>f.id===wrap.dataset.fid),refreshLookupsFor));
+      // Multi-select fields render as a chip group (no <select multiple>, to
+      // match the rest of the app's chip-toggle pattern used in Reports).
+      // multiVals holds the current selection per field id, read back on submit.
+      const multiVals={};
+      t.fields.filter(f=>f.type==='multiselect').forEach(f=>{multiVals[f.id]=Array.isArray(v[f.id])?[...v[f.id]]:[];});
+      $$('.chips[data-msf]',el).forEach(wrap=>{
+        wrap.addEventListener('click',e=>{
+          const b=e.target.closest('[data-msopt]');if(!b)return;
+          const fid=wrap.dataset.msf,opt=b.dataset.msopt;
+          const arr=multiVals[fid];
+          const i=arr.indexOf(opt);
+          if(i>=0)arr.splice(i,1);else arr.push(opt);
+          b.classList.toggle('on');
+          refreshFormulas();
+        });
+      });
+      // Formula fields are read-only and recomputed live from whatever the
+      // other fields on THIS form currently hold, so they update as the
+      // person types rather than only reflecting the last-saved record.
+      const formulaFields=t.fields.filter(f=>f.type==='formula');
+      function currentFormValues(){
+        const cv={};
+        t.fields.forEach(f=>{
+          if(f.type==='formula')return;
+          if(f.type==='lookup'){cv[f.id]=lookupVals[f.id];return;}
+          if(f.type==='multiselect'){cv[f.id]=multiVals[f.id];return;}
+          if(f.type==='autonum'){cv[f.id]=rec?rec.v[f.id]:null;return;}
+          const inp=$('#f_'+f.id,el);
+          if(!inp){cv[f.id]=v[f.id];return;}
+          if(f.type==='checkbox')cv[f.id]=inp.checked;
+          else if(f.type==='link')cv[f.id]=inp.dataset.val||'';
+          else cv[f.id]=inp.value;
+        });
+        return cv;
+      }
+      function refreshFormulas(){
+        if(!formulaFields.length)return;
+        const tmpRec={v:currentFormValues()};
+        formulaFields.forEach(f=>{
+          const dispInp=$(`[data-formula="${f.id}"]`,el);
+          if(!dispInp)return;
+          const result=computeFormula(f,tmpRec,t);
+          dispInp.value=isEmpty(result)?'':formatNumber(f,result,false);
+        });
+      }
+      refreshFormulas();
+      if(formulaFields.length){
+        el.addEventListener('input',refreshFormulas);
+        el.addEventListener('change',refreshFormulas);
+      }
       $('#rf',el).addEventListener('submit',e=>{
         e.preventDefault();
         $$('.err',el).forEach(x=>x.textContent='');
@@ -915,6 +1110,24 @@ function recordModal(tid,rid,prefill){
           if(f.type==='lookup'){
             nv[f.id]=lookupVals[f.id]||null;
             if(nv[f.id]&&!isEmpty(nv[f.id].value))any=true;
+            return;
+          }
+          if(f.type==='autonum'){
+            // Assigned once, on first save, from the table's own counter —
+            // never editable and never reassigned on later edits.
+            nv[f.id]=rec?rec.v[f.id]:null;
+            if(!isEmpty(nv[f.id]))any=true;
+            return;
+          }
+          if(f.type==='formula'){
+            // Nothing is stored — always computed live from the other fields
+            // (see fmtRec/computeFormula) so it can never drift out of date.
+            return;
+          }
+          if(f.type==='multiselect'){
+            nv[f.id]=multiVals[f.id];
+            if(nv[f.id].length)any=true;
+            if(f.required&&!nv[f.id].length){ok=false;$(`[data-e="${f.id}"]`,el).textContent='Required';}
             return;
           }
           const inp=$('#f_'+f.id,el);
@@ -952,6 +1165,16 @@ function recordModal(tid,rid,prefill){
         });
         if(ok&&!any){ok=false;$('#rerr',el).textContent='Enter at least one value.';}
         if(!ok)return;
+        // Auto-number fields get the table's next counter value, but only on
+        // first save (an edit keeps whatever it was originally assigned,
+        // handled above by copying rec.v[f.id] through untouched).
+        const autonumFields=t.fields.filter(f=>f.type==='autonum');
+        if(!rec&&autonumFields.length){
+          const fresh=Store.table(tid);
+          let seq=fresh.autonumSeq||0;
+          autonumFields.forEach(f=>{seq++;nv[f.id]=seq;});
+          Store.saveTable(Object.assign({},fresh,{autonumSeq:seq}));
+        }
         const now=new Date().toISOString();
         const r=rec?Object.assign({},rec,{v:nv,updated:now}):{id:uid(),v:nv,created:now,updated:now};
         Store.saveRecord(tid,r);
@@ -972,7 +1195,7 @@ function setupLinkPicker(wrap,f,onChange){
   const lt=Store.table(f.linkTable);
   if(!lt)return;
   const inp=$('input',wrap),menu=$('.lpmenu',wrap);
-  const opts=()=>Store.records(lt.id).map(r=>({id:r.id,label:fmt(lt.fields[0],r.v[lt.fields[0].id])||'Untitled',search:linkSearchText(lt,r)})).sort((a,b)=>a.label.localeCompare(b.label,'en-GB',{sensitivity:'base'}));
+  const opts=()=>Store.records(lt.id).map(r=>({id:r.id,label:fmtRec(lt.fields[0],r,lt)||'Untitled',search:linkSearchText(lt,r)})).sort((a,b)=>a.label.localeCompare(b.label,'en-GB',{sensitivity:'base'}));
   function draw(){
     const q=inp.value.trim().toLowerCase();
     const list=opts().filter(o=>!q||o.search.includes(q)).slice(0,50);
@@ -1004,8 +1227,8 @@ function tableModal(tid){
   const orig=tid?Store.table(tid):null;
   const hasRecs=!!tid&&Store.records(tid).length>0;
   const draft=orig
-    ?{name:orig.name,fields:orig.fields.map(f=>({id:f.id,name:f.name,type:f.type,required:!!f.required,unique:!!f.unique,options:[...(f.options||[])],linkTable:f.linkTable||'',via:f.via||'',srcField:f.srcField||'',isNew:false})),titleField:orig.titleField||'',subtitleFields:orig.subtitleFields?[...orig.subtitleFields]:null,badgeField:orig.badgeField!==undefined?orig.badgeField:''}
-    :{name:'',fields:[{id:uid(),name:'Name',type:'text',required:true,unique:false,options:[],linkTable:'',via:'',srcField:'',isNew:true}],titleField:'',subtitleFields:null,badgeField:''};
+    ?{name:orig.name,fields:orig.fields.map(f=>({id:f.id,name:f.name,type:f.type,required:!!f.required,unique:!!f.unique,options:[...(f.options||[])],linkTable:f.linkTable||'',via:f.via||'',srcField:f.srcField||'',numFormat:f.numFormat||'',formula:f.formula||'',isNew:false})),titleField:orig.titleField||'',subtitleFields:orig.subtitleFields?[...orig.subtitleFields]:null,badgeField:orig.badgeField!==undefined?orig.badgeField:''}
+    :{name:'',fields:[{id:uid(),name:'Name',type:'text',required:true,unique:false,options:[],linkTable:'',via:'',srcField:'',numFormat:'',formula:'',isNew:true}],titleField:'',subtitleFields:null,badgeField:''};
   const otherTables=Store.tables().filter(x=>x.id!==tid);
   openModal({
     title:orig?'Table setup':'New table',
@@ -1027,7 +1250,15 @@ function tableModal(tid){
             const srcOpts=srcTable?lookupSourceFields(srcTable):[];
             lookupUi=`<div class="fr2"><select class="flvia" ${locked?'disabled':''}>${linkFields.map(x=>`<option value="${x.id}" ${x.id===f.via?'selected':''}>via ${esc(x.name)}</option>`).join('')}</select><select class="flsrc" ${locked?'disabled':''}><option value="">Choose a field…</option>${srcOpts.map(x=>`<option value="${x.id}" ${x.id===f.srcField?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>`;
           }
-          return `<div class="frow" data-i="${i}"><div class="fr1"><input class="fn" value="${esc(f.name)}" placeholder="Field name" autocomplete="off"><button class="ib" type="button" data-mv="-1" aria-label="Move up" ${i===0?'disabled':''}>${ic('up',16)}</button><button class="ib" type="button" data-mv="1" aria-label="Move down" ${i===last?'disabled':''}>${ic('down',16)}</button><button class="ib" type="button" data-rm aria-label="Remove field">${ic('trash',16)}</button></div><div class="fr2"><select class="ft" ${locked?'disabled':''}>${typeOpts.map(k=>`<option value="${k}" ${k===f.type?'selected':''}>${TYPES[k]}</option>`).join('')}</select>${(f.type!=='checkbox'&&f.type!=='lookup')?`<label class="chk"><input type="checkbox" class="fq" ${f.required?'checked':''}> Required</label>`:''}${(f.type!=='checkbox'&&f.type!=='lookup'&&f.type!=='longtext')?`<label class="chk"><input type="checkbox" class="fu" ${f.unique?'checked':''}> Unique</label>`:''}</div>${f.type==='dropdown'?`<textarea class="fo" rows="2" placeholder="Options, one per line">${esc(f.options.join('\n'))}</textarea>`:''}${f.type==='link'?`<select class="flt2" ${locked?'disabled':''}><option value="">Choose a table…</option>${otherTables.map(x=>`<option value="${x.id}" ${x.id===f.linkTable?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`:''}${lookupUi}</div>`;
+          const showReq=f.type!=='checkbox'&&f.type!=='lookup'&&f.type!=='autonum'&&f.type!=='formula';
+          const showUniq=showReq&&f.type!=='longtext'&&f.type!=='multiselect';
+          const numFmtUi=(f.type==='number'||f.type==='formula')?`<div class="fr2"><select class="fnf" ${locked?'':''}><option value="" ${!f.numFormat?'selected':''}>Plain number</option><option value="currency" ${f.numFormat==='currency'?'selected':''}>Currency (£)</option><option value="percent" ${f.numFormat==='percent'?'selected':''}>Percentage (%)</option></select></div>`:'';
+          let formulaUi='';
+          if(f.type==='formula'){
+            const refFields=draft.fields.filter(x=>x.id!==f.id&&(x.type==='number'||x.type==='autonum'||x.type==='formula'||x.type==='lookup'));
+            formulaUi=`<input class="ffm" type="text" value="${esc(f.formula)}" placeholder="e.g. {Value} * 1.2" autocomplete="off">${refFields.length?`<div class="chips" style="margin-top:6px">${refFields.map(x=>`<button type="button" class="chip" data-insref="${esc(x.name)}">${esc(x.name||'(unnamed)')}</button>`).join('')}</div>`:''}<p class="hint" style="margin:4px 0 0">Reference other fields as {Field Name}. Supports + − × ÷ and parentheses.</p><div class="err" data-ferr></div>`;
+          }
+          return `<div class="frow" data-i="${i}"><div class="fr1"><input class="fn" value="${esc(f.name)}" placeholder="Field name" autocomplete="off"><button class="ib" type="button" data-mv="-1" aria-label="Move up" ${i===0?'disabled':''}>${ic('up',16)}</button><button class="ib" type="button" data-mv="1" aria-label="Move down" ${i===last?'disabled':''}>${ic('down',16)}</button><button class="ib" type="button" data-rm aria-label="Remove field">${ic('trash',16)}</button></div><div class="fr2"><select class="ft" ${locked?'disabled':''}>${typeOpts.map(k=>`<option value="${k}" ${k===f.type?'selected':''}>${TYPES[k]}</option>`).join('')}</select>${showReq?`<label class="chk"><input type="checkbox" class="fq" ${f.required?'checked':''}> Required</label>`:''}${showUniq?`<label class="chk"><input type="checkbox" class="fu" ${f.unique?'checked':''}> Unique</label>`:''}</div>${numFmtUi}${(f.type==='dropdown'||f.type==='multiselect')?`<textarea class="fo" rows="2" placeholder="Options, one per line">${esc(f.options.join('\n'))}</textarea>`:''}${f.type==='link'?`<select class="flt2" ${locked?'disabled':''}><option value="">Choose a table…</option>${otherTables.map(x=>`<option value="${x.id}" ${x.id===f.linkTable?'selected':''}>${esc(x.name)}</option>`).join('')}</select>`:''}${f.type==='autonum'?`<p class="hint" style="margin:0">Assigns each new record the next number automatically (1, 2, 3…). Read-only.</p>`:''}${formulaUi}${lookupUi}</div>`;
         }).join('');
       }
       function sync(){
@@ -1038,6 +1269,8 @@ function tableModal(tid){
           const q=$('.fq',row);f.required=q?q.checked:false;
           const u=$('.fu',row);f.unique=u?u.checked:false;
           const o=$('.fo',row);if(o)f.options=o.value.split('\n').map(s=>s.trim()).filter(Boolean);
+          const nf=$('.fnf',row);if(nf)f.numFormat=nf.value;
+          const fm=$('.ffm',row);if(fm)f.formula=fm.value;
           const lk=$('.flt2',row);if(lk)f.linkTable=lk.value;
           const via=$('.flvia',row);if(via)f.via=via.value;
           const src=$('.flsrc',row);if(src)f.srcField=src.value;
@@ -1078,6 +1311,15 @@ function tableModal(tid){
       fl.addEventListener('click',e=>{
         const mv=e.target.closest('[data-mv]');
         const rm=e.target.closest('[data-rm]');
+        const insref=e.target.closest('[data-insref]');
+        if(insref){
+          const row=insref.closest('.frow'),inp=$('.ffm',row);
+          const token='{'+insref.dataset.insref+'}';
+          const s=inp.selectionStart||inp.value.length,en=inp.selectionEnd||inp.value.length;
+          inp.value=inp.value.slice(0,s)+token+inp.value.slice(en);
+          inp.focus();inp.selectionStart=inp.selectionEnd=s+token.length;
+          return;
+        }
         if(mv){
           sync();
           const i=+mv.closest('.frow').dataset.i,j=i+ +mv.dataset.mv;
@@ -1104,7 +1346,7 @@ function tableModal(tid){
       fl.addEventListener('blur',e=>{if(e.target.classList&&e.target.classList.contains('fn')){sync();renderListCols();}},true);
       $('#af',el).onclick=()=>{
         sync();
-        draft.fields.push({id:uid(),name:'',type:'text',required:false,unique:false,options:[],linkTable:'',via:'',srcField:'',isNew:true});
+        draft.fields.push({id:uid(),name:'',type:'text',required:false,unique:false,options:[],linkTable:'',via:'',srcField:'',numFormat:'',formula:'',isNew:true});
         renderFields();renderListCols();
         const ins=$$('.fn',el);ins[ins.length-1].focus();
       };
@@ -1130,9 +1372,15 @@ function tableModal(tid){
         const names=draft.fields.map(f=>f.name.trim().toLowerCase());
         if(names.some(n=>!n)){err.textContent='Every field needs a name.';return;}
         if(new Set(names).size!==names.length){err.textContent='Field names must be different.';return;}
-        if(draft.fields.some(f=>f.type==='dropdown'&&!f.options.length)){err.textContent='Add at least one option to each dropdown.';return;}
+        if(draft.fields.some(f=>(f.type==='dropdown'||f.type==='multiselect')&&!f.options.length)){err.textContent='Add at least one option to each dropdown/multi-select field.';return;}
         if(draft.fields.some(f=>f.type==='link'&&!f.linkTable)){err.textContent='Choose a table for each link field.';return;}
         if(draft.fields.some(f=>f.type==='lookup'&&(!f.via||!f.srcField))){err.textContent='Choose a link and a field to pull in for each lookup field.';return;}
+        if(draft.fields.some(f=>f.type==='formula'&&!f.formula.trim())){err.textContent='Enter a formula for each formula field.';return;}
+        const badFormula=draft.fields.find(f=>{
+          if(f.type!=='formula'||!f.formula.trim())return false;
+          try{parseFormula(tokenizeFormula(f.formula));return false;}catch(e){return true;}
+        });
+        if(badFormula){err.textContent=`The formula for "${badFormula.name.trim()||'that field'}" isn't valid. Check the field names and symbols.`;return;}
         // Turning "Unique" on for a field that already has duplicate values
         // among existing records would silently make the table inconsistent
         // (nothing re-validates old data), so check before allowing it.
@@ -1156,7 +1404,14 @@ function tableModal(tid){
         const apply=()=>{
           const t={id:orig?orig.id:uid(),name:name,created:orig?orig.created:new Date().toISOString(),
             titleField:draft.titleField,subtitleFields:draft.subtitleFields,badgeField:draft.badgeField,
-            fields:draft.fields.map(f=>({id:f.id,name:f.name.trim(),type:f.type,required:(f.type==='checkbox'||f.type==='lookup')?false:f.required,unique:(f.type==='checkbox'||f.type==='lookup'||f.type==='longtext')?false:!!f.unique,options:f.type==='dropdown'?f.options:[],linkTable:f.type==='link'?f.linkTable:'',via:f.type==='lookup'?f.via:'',srcField:f.type==='lookup'?f.srcField:''}))};
+            autonumSeq:orig?(orig.autonumSeq||0):0,
+            fields:draft.fields.map(f=>({id:f.id,name:f.name.trim(),type:f.type,
+              required:(f.type==='checkbox'||f.type==='lookup'||f.type==='autonum'||f.type==='formula')?false:f.required,
+              unique:(f.type==='checkbox'||f.type==='lookup'||f.type==='longtext'||f.type==='multiselect'||f.type==='autonum'||f.type==='formula')?false:!!f.unique,
+              options:(f.type==='dropdown'||f.type==='multiselect')?f.options:[],
+              linkTable:f.type==='link'?f.linkTable:'',via:f.type==='lookup'?f.via:'',srcField:f.type==='lookup'?f.srcField:'',
+              numFormat:(f.type==='number'||f.type==='formula')?(f.numFormat||''):'',
+              formula:f.type==='formula'?f.formula.trim():''}))};
           Store.saveTable(t);
           if(orig&&removed.length){
             Store.records(tid).forEach(r=>removed.forEach(f=>delete r.v[f.id]));
@@ -1245,8 +1500,8 @@ function rs(t){
 }
 
 function runReport(t,s){
-  const recs=Store.records(t.id).filter(r=>s.filters.every(fl=>match(r,t.fields.find(f=>f.id===fl.fid),fl)));
-  const sorted=sortRecs(recs,t.fields.find(f=>f.id===s.sf),s.dir);
+  const recs=Store.records(t.id).filter(r=>s.filters.every(fl=>match(r,t.fields.find(f=>f.id===fl.fid),fl,t)));
+  const sorted=sortRecs(recs,t.fields.find(f=>f.id===s.sf),s.dir,t);
   return {recs:sorted,cols:t.fields.filter(f=>s.fields.includes(f.id))};
 }
 
@@ -1254,13 +1509,13 @@ function fltRow(t,fl,i){
   const f=t.fields.find(x=>x.id===fl.fid);
   let val='';
   if(!noVal(fl.op)){
-    if(f.type==='dropdown')val=`<select class="fv"><option value=""></option>${f.options.map(o=>`<option ${o===fl.value?'selected':''}>${esc(o)}</option>`).join('')}</select>`;
+    if(f.type==='dropdown'||f.type==='multiselect')val=`<select class="fv"><option value=""></option>${f.options.map(o=>`<option ${o===fl.value?'selected':''}>${esc(o)}</option>`).join('')}</select>`;
     else if(f.type==='link'){
       const lt=Store.table(f.linkTable);
-      const opts=lt?Store.records(lt.id).map(r=>({id:r.id,label:fmt(lt.fields[0],r.v[lt.fields[0].id])||'Untitled'})).sort((a,b)=>a.label.localeCompare(b.label,'en-GB',{sensitivity:'base'})):[];
+      const opts=lt?Store.records(lt.id).map(r=>({id:r.id,label:fmtRec(lt.fields[0],r,lt)||'Untitled'})).sort((a,b)=>a.label.localeCompare(b.label,'en-GB',{sensitivity:'base'})):[];
       val=`<select class="fv"><option value=""></option>${opts.map(o=>`<option value="${esc(o.id)}" ${o.id===fl.value?'selected':''}>${esc(o.label)}</option>`).join('')}</select>`;
     }
-    else val=`<input class="fv" type="${f.type==='number'?'number':f.type==='date'?'date':'text'}" ${f.type==='number'?'step="any"':''} value="${esc(fl.value)}" placeholder="Value" autocomplete="off">`;
+    else val=`<input class="fv" type="${(f.type==='number'||f.type==='autonum'||f.type==='formula')?'number':f.type==='date'?'date':'text'}" ${(f.type==='number'||f.type==='autonum'||f.type==='formula')?'step="any"':''} value="${esc(fl.value)}" placeholder="Value" autocomplete="off">`;
   }
   return `<div class="flt" data-i="${i}"><select class="ff" aria-label="Field">${t.fields.map(x=>`<option value="${x.id}" ${x.id===f.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select><select class="fop" aria-label="Condition">${OPS[f.type].map(o=>`<option value="${o[0]}" ${o[0]===fl.op?'selected':''}>${o[1]}</option>`).join('')}</select><button class="ib" type="button" data-rmf aria-label="Remove filter">${ic('x',16)}</button>${val?`<div class="fvw">${val}</div>`:''}</div>`;
 }
@@ -1270,7 +1525,7 @@ function updatePreview(t,s){
   const total=Store.records(t.id).length;
   $('#repMeta').textContent=`${r.recs.length} of ${total} records`+(r.recs.length>100?' \u00b7 showing first 100, downloads include all':'');
   $('#repPrev').innerHTML=r.recs.length
-    ?`<table class="rt"><thead><tr>${r.cols.map(f=>`<th>${esc(f.name)}</th>`).join('')}</tr></thead><tbody>${r.recs.slice(0,100).map(rec=>`<tr>${r.cols.map(f=>`<td class="${f.type==='number'?'num':''}">${esc(fmt(f,rec.v[f.id]))}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+    ?`<table class="rt"><thead><tr>${r.cols.map(f=>`<th>${esc(f.name)}</th>`).join('')}</tr></thead><tbody>${r.recs.slice(0,100).map(rec=>`<tr>${r.cols.map(f=>`<td class="${(f.type==='number'||f.type==='autonum'||f.type==='formula')?'num':''}">${esc(fmtRec(f,rec,t))}</td>`).join('')}</tr>`).join('')}</tbody></table>`
     :'<div class="empty" style="padding:24px">No records match.</div>';
 }
 
@@ -1447,7 +1702,7 @@ function viewName(t,s){const v=s.viewId?Store.views(t.id).find(x=>x.id===s.viewI
 
 function exportCsv(t,s){
   const r=runReport(t,s);
-  const rows=[r.cols.map(f=>f.name)].concat(r.recs.map(rec=>r.cols.map(f=>fmt(f,rec.v[f.id],true))));
+  const rows=[r.cols.map(f=>f.name)].concat(r.recs.map(rec=>r.cols.map(f=>fmtRec(f,rec,t,true))));
   dl(`${slug(t.name)}-${slug(viewName(t,s)||'report')}-${today()}.csv`,'\uFEFF'+rows.map(x=>x.map(csvCell).join(',')).join('\r\n'),'text/csv;charset=utf-8');
   toast('CSV downloaded');
 }
@@ -1456,7 +1711,7 @@ function printReport(t,s){
   const r=runReport(t,s);
   const vn=viewName(t,s);
   const d=new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
-  $('#printArea').innerHTML=`<h1>${esc(t.name)}${vn?' \u2013 '+esc(vn):''}</h1><p>${r.recs.length} record${r.recs.length===1?'':'s'} \u00b7 Generated ${d}</p><table><thead><tr>${r.cols.map(f=>`<th>${esc(f.name)}</th>`).join('')}</tr></thead><tbody>${r.recs.map(rec=>`<tr>${r.cols.map(f=>`<td style="${f.type==='number'?'text-align:right':''}">${esc(fmt(f,rec.v[f.id]))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  $('#printArea').innerHTML=`<h1>${esc(t.name)}${vn?' \u2013 '+esc(vn):''}</h1><p>${r.recs.length} record${r.recs.length===1?'':'s'} \u00b7 Generated ${d}</p><table><thead><tr>${r.cols.map(f=>`<th>${esc(f.name)}</th>`).join('')}</tr></thead><tbody>${r.recs.map(rec=>`<tr>${r.cols.map(f=>`<td style="${(f.type==='number'||f.type==='autonum'||f.type==='formula')?'text-align:right':''}">${esc(fmtRec(f,rec,t))}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
   window.print();
 }
 
