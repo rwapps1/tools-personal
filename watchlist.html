@@ -209,6 +209,7 @@
     font-size: 17px;
     color: rgba(255,255,255,0.85);
   }
+  .arch-thumb svg { width: 18px; height: 18px; }
   .arch-body { flex: 1; min-width: 0; }
   .arch-name {
     display: block;
@@ -250,15 +251,16 @@
   .search-result:hover { border-color: var(--text-faint); }
   .search-tag {
     flex-shrink: 0;
+    max-width: 92px;
     font-size: 10.5px;
     font-weight: 700;
     letter-spacing: 0.02em;
     text-transform: uppercase;
+    text-align: right;
     color: var(--text-faint);
     background: var(--surface-2);
     padding: 4px 8px;
     border-radius: 999px;
-    white-space: nowrap;
   }
   #searchResults:empty { margin: 0; }
 
@@ -516,6 +518,7 @@
     color: var(--text-faint);
     font-size: 13.5px;
   }
+  .row-empty p { margin: 0 0 10px; }
 
   /* ---------- modal ---------- */
 
@@ -1344,7 +1347,13 @@
   </div>
 
   <div class="row ufc" id="rowUfc" hidden>
-    <div class="row-title"><h2>UFC Events</h2><span class="count" id="ufcCount"></span></div>
+    <div class="row-title">
+      <h2>UFC Events</h2><span class="count" id="ufcCount"></span>
+      <button type="button" class="row-pill" id="openSchedule">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="14" height="12.5" rx="2"/><path d="M3 8.5h14M7 2.5v4M13 2.5v4"/></svg>
+        <span class="row-pill-label">Schedule</span>
+      </button>
+    </div>
     <div class="row-scroll" id="ufcScroll"></div>
   </div>
 
@@ -1596,6 +1605,23 @@
     <div class="modal-actions fight-actions">
       <div class="right-actions">
         <button type="button" class="btn-primary" id="searchDone">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- UFC Schedule -->
+<div class="modal-backdrop" id="scheduleBackdrop" hidden>
+  <div class="modal fight-modal" role="dialog" aria-modal="true" aria-labelledby="scheduleTitle" tabindex="-1">
+    <h2 id="scheduleTitle">UFC Schedule</h2>
+    <p class="sub" id="scheduleSub">Live from Wikipedia&rsquo;s list of UFC events.</p>
+    <div id="scheduleList"></div>
+    <div class="modal-actions fight-actions">
+      <div class="left-actions">
+        <button type="button" class="btn-small" id="scheduleRefresh">Refresh</button>
+      </div>
+      <div class="right-actions">
+        <button type="button" class="btn-primary" id="scheduleDone">Done</button>
       </div>
     </div>
   </div>
@@ -2085,7 +2111,8 @@
   // which on a phone means the grid slides about while you're mid-edit.
   function syncScrollLock() {
     var open = !backdrop.hidden || !cardBackdrop.hidden || !epBackdrop.hidden ||
-               !archiveBackdrop.hidden || !donePrompt.hidden || !searchBackdrop.hidden;
+               !archiveBackdrop.hidden || !donePrompt.hidden || !searchBackdrop.hidden ||
+               !scheduleBackdrop.hidden;
     document.documentElement.style.overflow = open ? "hidden" : "";
     document.body.style.overflow = open ? "hidden" : "";
   }
@@ -2115,13 +2142,15 @@
       clearTimeout(suppressTimer);
       return;
     }
-    if (!backdrop.hidden || !cardBackdrop.hidden || !archiveBackdrop.hidden || !epBackdrop.hidden || !searchBackdrop.hidden) {
+    if (!backdrop.hidden || !cardBackdrop.hidden || !archiveBackdrop.hidden || !epBackdrop.hidden ||
+        !searchBackdrop.hidden || !scheduleBackdrop.hidden) {
       historyPushed = false;
       hideModalDom();
       hideCardDom();
       hideArchiveDom();
       hideEpDom();
       hideSearchDom();
+      hideScheduleDom();
     }
   });
 
@@ -2309,7 +2338,7 @@
     });
   });
 
-  function openModal(id, presetType) {
+  function openModal(id, presetType, prefill) {
     state.editingId = id;
     state.confirmingDelete = false;
     form.reset();
@@ -2353,6 +2382,24 @@
         ? "Add the event now — you can build the fight card straight after."
         : "Just the basics — you can always come back and tidy it up.";
       submitBtn.textContent = "Add";
+
+      // Filled in from the Schedule panel — everything here is still just a
+      // starting point the form lets you change before saving.
+      if (prefill) {
+        document.getElementById("f-name").value = prefill.name || "";
+        if (prefill.source) {
+          if (SOURCE_STYLES[prefill.source]) {
+            sourceSelect.value = prefill.source;
+          } else {
+            sourceSelect.value = "other";
+            customSourceField.hidden = false;
+            document.getElementById("f-source-custom").value = prefill.source;
+          }
+        }
+        setFormStatus(prefill.comingSoon ? "soon" : "list");
+        document.getElementById("f-date").value = prefill.dateISO || "";
+        document.getElementById("f-release").value = prefill.releaseDate || "";
+      }
     }
 
     checkPosterPreview();
@@ -2380,6 +2427,9 @@
     releaseField.hidden = true;
     formError.textContent = "";
     clearPosterSearch();
+    // Only consumed by a successful save started from the Schedule panel —
+    // closing without saving must not leave it to fire on some later add.
+    pendingScheduleImport = null;
   }
 
   function closeModal() {
@@ -2558,9 +2608,18 @@
         // A new event is no use without its card — go straight there, keeping
         // the single back step rather than releasing and re-claiming it.
         if (wasNew && isUfc && ref && ref.id) {
+          // hideModalDom() clears this as its normal cancel-path cleanup, so
+          // grab it first.
+          var autoImportName = pendingScheduleImport;
           hideModalDom();
           state.shows = state.shows.concat([Object.assign({ id: ref.id }, data)]);
           openCard(ref.id);
+          // Added from the Schedule panel — try to pull its card straight
+          // away instead of waiting for a manual search. Same fetch/parse
+          // path as a normal "Add fights" search, so a missing or
+          // card-less page just leaves this an empty card, same as any
+          // other freshly-added event.
+          if (autoImportName) loadFromWikipedia(autoImportName);
         } else {
           closeModal();
         }
@@ -3718,6 +3777,316 @@
   cardBackdrop.addEventListener("click", function (e) { if (e.target === cardBackdrop) closeCard(); });
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && !cardBackdrop.hidden) closeCard();
+  });
+
+  // ---------- UFC Schedule ----------
+  // Pulls the "Scheduled events" table straight from Wikipedia's wikitext —
+  // unlike the fight-card import above (which reads rendered HTML via
+  // DOMParser), this needs the raw markup so [[links]] and <ref> citations
+  // can be stripped by hand. Same keyless CORS endpoint as everything else.
+
+  var scheduleBackdrop = document.getElementById("scheduleBackdrop");
+  var scheduleModal = scheduleBackdrop.querySelector(".modal");
+  var scheduleList = document.getElementById("scheduleList");
+  var scheduleToken = 0;
+  var scheduleItems = [];
+  var pendingScheduleImport = null;
+
+  var SCHEDULE_PAGE = "List of UFC events";
+  var WIKI_MONTHS = {
+    january: 0, february: 1, march: 2, april: 3, may: 4, june: 5, july: 6,
+    august: 7, september: 8, october: 9, november: 10, december: 11,
+    jan: 0, feb: 1, mar: 2, apr: 3, jun: 5, jul: 6, aug: 7, sep: 8, sept: 8, oct: 9, nov: 10, dec: 11
+  };
+
+  function wikiFetchWikitext(title) {
+    var url = WIKI_API + "?action=parse&prop=wikitext&format=json&origin=*&redirects=1&page=" +
+      encodeURIComponent(title);
+    return fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+      if (d.error) throw new Error(d.error.info || "Couldn't open that page");
+      var wt = d.parse && d.parse.wikitext && d.parse.wikitext["*"];
+      if (!wt) throw new Error("That page has no content");
+      return wt;
+    });
+  }
+
+  // Collapses {{templates}} down to their last plain positional parameter —
+  // enough for the simple wrappers this table actually uses (nowrap, sort
+  // keys, etc.), without attempting to be a real wikitext engine.
+  function resolveWikiTemplates(s) {
+    var prev;
+    do {
+      prev = s;
+      s = s.replace(/\{\{([^{}]*)\}\}/g, function (m, inner) {
+        var parts = inner.split("|");
+        for (var i = parts.length - 1; i >= 0; i--) {
+          var p = parts[i].trim();
+          if (p && p.indexOf("=") === -1) return p;
+        }
+        return "";
+      });
+    } while (s !== prev);
+    return s;
+  }
+
+  function cleanWikiCell(raw) {
+    var s = String(raw == null ? "" : raw);
+    s = resolveWikiTemplates(s);
+    // [[Target|Display]] -> Display, [[Target]] -> Target
+    s = s.replace(/\[\[([^\]|]*)\|([^\]]*)\]\]/g, "$2").replace(/\[\[([^\]]*)\]\]/g, "$1");
+    // [http://x Display] -> Display, bare [http://x] -> dropped
+    s = s.replace(/\[https?:\/\/[^\s\]]+\s+([^\]]*)\]/g, "$1").replace(/\[https?:\/\/[^\s\]]*\]/g, "");
+    s = s.replace(/'{2,5}/g, ""); // ''italic'', '''bold''', '''''both'''''
+    s = s.replace(/<br\s*\/?>/gi, ", ");
+    s = s.replace(/<[^>]+>/g, " ");
+    s = s.replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&#39;/g, "'")
+         .replace(/&quot;/gi, '"').replace(/&ndash;/gi, "-").replace(/&mdash;/gi, "-");
+    s = s.replace(/\s+/g, " ").trim();
+    // A leftover cell-attribute prefix like `align="center"|` — only ever
+    // left behind once any wikilink/template pipe has already been resolved
+    // above, so the first remaining "|" is safe to treat as the separator.
+    var pipeIdx = s.indexOf("|");
+    if (pipeIdx !== -1 && /=/.test(s.slice(0, pipeIdx))) s = s.slice(pipeIdx + 1).trim();
+    return s;
+  }
+
+  // Finds the "Scheduled events" section specifically, so the much larger
+  // historical results table further down the same page is never touched.
+  function extractScheduleSection(wikitext) {
+    var headingRe = /^={2,4}\s*([^=]+?)\s*={2,4}\s*$/gm;
+    var m, headings = [];
+    while ((m = headingRe.exec(wikitext))) {
+      headings.push({ title: m[1].trim(), start: m.index, end: m.index + m[0].length });
+    }
+    var startIdx = -1, sectionEnd = wikitext.length;
+    for (var i = 0; i < headings.length; i++) {
+      if (/scheduled|upcoming/i.test(headings[i].title)) {
+        startIdx = headings[i].end;
+        sectionEnd = i + 1 < headings.length ? headings[i + 1].start : wikitext.length;
+        break;
+      }
+    }
+    return startIdx === -1 ? wikitext : wikitext.slice(startIdx, sectionEnd);
+  }
+
+  // Minimal wikitable reader: finds the first {| ... |} block, splits rows on
+  // "|-" lines, and cells on a leading "|"/"!" per line (plus "||"/"!!" for
+  // cells sharing a line) — not a general wikitext engine, just enough for
+  // this one table's usual shape.
+  function parseWikiTable(section) {
+    var tableStart = section.indexOf("{|");
+    if (tableStart === -1) return [];
+    var tableEnd = section.indexOf("|}", tableStart);
+    var block = tableEnd === -1 ? section.slice(tableStart) : section.slice(tableStart, tableEnd);
+
+    var lines = block.split("\n");
+    var rows = [];
+    var current = null;
+
+    for (var i = 1; i < lines.length; i++) { // line 0 is the "{|..." opener
+      var line = lines[i].trim();
+      if (!line) continue;
+      if (line.indexOf("|-") === 0) {
+        if (current) rows.push(current);
+        current = [];
+        continue;
+      }
+      if (line.indexOf("|") === 0 || line.indexOf("!") === 0) {
+        if (!current) current = [];
+        var sep = line.charAt(0) === "!" ? /!!|\|\|/ : /\|\|/;
+        line.slice(1).split(sep).forEach(function (c) { current.push(cleanWikiCell(c)); });
+      }
+    }
+    if (current) rows.push(current);
+    return rows;
+  }
+
+  // "December 7, 2024" / "7 December 2024" -> a real dateISO. Month-only
+  // ("February 2025") gets a sort key but no dateISO — not precise enough to
+  // save as a real date. TBA/blank gets neither, and sorts last.
+  function parseScheduleDate(raw) {
+    var text = (raw || "").trim();
+    if (!text || /^(TBA|TBD|TBC|N\/A)$/i.test(text)) {
+      return { dateISO: "", releaseDate: "", sortKey: "9999-99-99" };
+    }
+
+    var mon, day, year;
+    var m = text.match(/([A-Za-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})/);
+    if (m && WIKI_MONTHS.hasOwnProperty(m[1].toLowerCase())) {
+      mon = WIKI_MONTHS[m[1].toLowerCase()]; day = parseInt(m[2], 10); year = parseInt(m[3], 10);
+    } else {
+      m = text.match(/(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]+)\.?,?\s+(\d{4})/);
+      if (m && WIKI_MONTHS.hasOwnProperty(m[2].toLowerCase())) {
+        mon = WIKI_MONTHS[m[2].toLowerCase()]; day = parseInt(m[1], 10); year = parseInt(m[3], 10);
+      }
+    }
+    if (mon != null && !isNaN(new Date(year, mon, day).getTime())) {
+      var iso = year + "-" + String(mon + 1).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+      return { dateISO: iso, releaseDate: "", sortKey: iso };
+    }
+
+    var ym = text.match(/([A-Za-z]+)\.?\s+(\d{4})/);
+    if (ym && WIKI_MONTHS.hasOwnProperty(ym[1].toLowerCase())) {
+      var ymMon = WIKI_MONTHS[ym[1].toLowerCase()];
+      return { dateISO: "", releaseDate: text, sortKey: ym[2] + "-" + String(ymMon + 1).padStart(2, "0") + "-01" };
+    }
+
+    return { dateISO: "", releaseDate: text, sortKey: "9999-99-99" };
+  }
+
+  function parseScheduleRows(wikitext) {
+    var rows = parseWikiTable(extractScheduleSection(wikitext));
+    if (!rows.length) return [];
+
+    // Read the header row to find each column rather than assuming a fixed
+    // order, so an extra/reordered column (Ref., Attendance, …) can't throw
+    // the parse off.
+    var header = rows[0].map(function (h) { return h.toLowerCase(); });
+    var nameIdx = header.findIndex(function (h) { return /event/.test(h); });
+    var dateIdx = header.findIndex(function (h) { return /date/.test(h); });
+    var venueIdx = header.findIndex(function (h) { return /venue/.test(h); });
+    var locIdx = header.findIndex(function (h) { return /location/.test(h); });
+    var dataRows = rows.slice(1);
+    if (nameIdx === -1) { nameIdx = 0; dateIdx = 1; venueIdx = 2; locIdx = 3; dataRows = rows; }
+
+    var out = [];
+    dataRows.forEach(function (cells) {
+      var name = nameIdx !== -1 ? (cells[nameIdx] || "") : "";
+      if (!name) return;
+      var dateInfo = parseScheduleDate(dateIdx !== -1 ? cells[dateIdx] : "");
+      out.push({
+        name: name,
+        venue: venueIdx !== -1 ? (cells[venueIdx] || "") : "",
+        location: locIdx !== -1 ? (cells[locIdx] || "") : "",
+        dateISO: dateInfo.dateISO,
+        releaseDate: dateInfo.releaseDate,
+        sortKey: dateInfo.sortKey
+      });
+    });
+
+    out.sort(function (a, b) { return a.sortKey < b.sortKey ? -1 : a.sortKey > b.sortKey ? 1 : 0; });
+    return out;
+  }
+
+  function isAlreadyOnList(name) {
+    var n = name.trim().toLowerCase();
+    return state.shows.some(function (s) {
+      return typeOf(s) === "ufc" && s.name && s.name.trim().toLowerCase() === n;
+    });
+  }
+
+  function scheduleDateLabel(item) {
+    if (item.dateISO) return formatISO(item.dateISO);
+    if (item.releaseDate) return item.releaseDate;
+    return "Date TBA";
+  }
+
+  function renderScheduleLoading() {
+    scheduleList.innerHTML = '<div class="row-empty">Loading the schedule&hellip;</div>';
+  }
+
+  function renderScheduleError() {
+    scheduleList.innerHTML =
+      '<div class="row-empty">' +
+        '<p>Couldn&rsquo;t load the schedule — check your connection.</p>' +
+        '<button type="button" class="btn-small" id="scheduleRetry">Retry</button>' +
+      '</div>';
+    document.getElementById("scheduleRetry").addEventListener("click", loadSchedule);
+  }
+
+  function renderScheduleRows(items) {
+    if (!items.length) {
+      scheduleList.innerHTML = '<div class="row-empty">No scheduled events found.</div>';
+      return;
+    }
+
+    scheduleList.innerHTML = items.map(function (item, i) {
+      var already = isAlreadyOnList(item.name);
+      var venueLine = [item.venue, item.location].filter(Boolean).join(" · ");
+      var action = already
+        ? '<span class="search-tag">Already on your list</span>'
+        : '<button type="button" class="btn-small" data-sched-add="' + i + '">Add</button>';
+
+      return '<div class="arch-row">' +
+        '<span class="arch-thumb" style="background-color:var(--ufc);color:#16161a">' +
+          '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6">' +
+            '<rect x="3" y="4.5" width="14" height="12.5" rx="2"/><path d="M3 8.5h14M7 2.5v4M13 2.5v4"/>' +
+          '</svg>' +
+        '</span>' +
+        '<div class="arch-body">' +
+          '<span class="arch-name">' + escapeHtml(item.name) + '</span>' +
+          '<span class="arch-meta">' + escapeHtml(scheduleDateLabel(item)) + '</span>' +
+          (venueLine ? '<span class="arch-when">' + escapeHtml(venueLine) + '</span>' : "") +
+        '</div>' +
+        '<span class="arch-actions">' + action + '</span>' +
+      '</div>';
+    }).join("");
+
+    Array.prototype.forEach.call(scheduleList.querySelectorAll("[data-sched-add]"), function (btn) {
+      btn.addEventListener("click", function () {
+        var item = scheduleItems[Number(btn.getAttribute("data-sched-add"))];
+        if (item) addScheduleEvent(item);
+      });
+    });
+  }
+
+  function loadSchedule() {
+    scheduleToken++;
+    var token = scheduleToken;
+    renderScheduleLoading();
+
+    wikiFetchWikitext(SCHEDULE_PAGE).then(function (wikitext) {
+      if (token !== scheduleToken) return;
+      scheduleItems = parseScheduleRows(wikitext);
+      renderScheduleRows(scheduleItems);
+    }).catch(function (err) {
+      if (token !== scheduleToken) return;
+      console.error(err);
+      renderScheduleError();
+    });
+  }
+
+  function addScheduleEvent(item) {
+    pendingScheduleImport = item.name;
+    // Keep the already-claimed back-step rather than releasing it here —
+    // openModal's own claimBackStep() call below is then a no-op, same as
+    // the search panel handing off straight to the Watched panel.
+    hideScheduleDom();
+    openModal(null, "ufc", {
+      name: item.name,
+      source: "TNT Sports",
+      comingSoon: true,
+      dateISO: item.dateISO,
+      releaseDate: item.releaseDate
+    });
+  }
+
+  function openSchedule() {
+    claimBackStep();
+    scheduleBackdrop.hidden = false;
+    syncScrollLock();
+    scheduleModal.focus();
+    loadSchedule(); // fetched fresh on every open — nothing cached between visits
+  }
+
+  function hideScheduleDom() {
+    scheduleBackdrop.hidden = true;
+    setTimeout(syncScrollLock, 0);
+  }
+
+  function closeSchedule() {
+    hideScheduleDom();
+    releaseBackStep();
+  }
+
+  document.getElementById("openSchedule").addEventListener("click", openSchedule);
+  document.getElementById("scheduleRefresh").addEventListener("click", loadSchedule);
+  document.getElementById("scheduleDone").addEventListener("click", closeSchedule);
+  scheduleBackdrop.addEventListener("click", function (e) {
+    if (e.target === scheduleBackdrop) closeSchedule();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !scheduleBackdrop.hidden) closeSchedule();
   });
 
   // ---------- coming soon becomes watchable ----------
