@@ -773,6 +773,17 @@
     margin-top: 8px;
     min-height: 34px;
   }
+  /* The add/edit form is the one modal long enough to need scrolling on a
+     phone — pin its Save/Add button to the bottom of the scroll area rather
+     than letting it hide below the fold with no visible cue. */
+  #modalBackdrop .modal-actions {
+    position: sticky;
+    bottom: 0;
+    margin: 8px -26px -22px;
+    padding: 10px 26px 22px;
+    background: var(--bg-2);
+    border-top: 1px solid var(--border);
+  }
   .left-actions { display: flex; align-items: center; gap: 8px; }
   .left-actions .btn-small[hidden] { display: none; }
   .right-actions { display: flex; gap: 10px; margin-left: auto; }
@@ -1294,6 +1305,7 @@
     .row-scroll { gap: 12px; }
     .modal-backdrop { padding: 10px; }
     .modal { padding: 16px 14px 14px; max-height: 95vh; }
+    #modalBackdrop .modal-actions { margin: 8px -14px -14px; padding: 10px 14px 14px; }
     .fight-modal { padding: 20px 16px 18px; max-height: 94vh; }
     .fight-actions .right-actions { width: 100%; }
     .fight-actions .right-actions .btn-primary { flex: 1; }
@@ -3810,14 +3822,40 @@
     });
   }
 
+  var WIKI_MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+
+  // Date templates (e.g. {{dts|2025|12|7}}, {{Start date|2025|12|7|df=y}})
+  // carry year/month/day as bare numeric positional params alongside named
+  // display flags (format=, df=, mf=...) — reconstructed as plain text here
+  // so the generic fallback below can't grab just one of those numbers (the
+  // day) and lose the month and year. Name-agnostic on purpose, since which
+  // of several near-identical date templates a given row uses isn't
+  // something to hard-code.
+  function resolveDateTemplate(inner) {
+    var nums = inner.split("|").slice(1)
+      .map(function (p) { return p.trim(); })
+      .filter(function (p) { return p.indexOf("=") === -1 && /^\d{1,4}$/.test(p); })
+      .map(function (p) { return parseInt(p, 10); });
+    if (nums.length < 2) return null;
+    var year = nums[0], month = nums[1], day = nums.length > 2 ? nums[2] : null;
+    if (year < 1993 || year > 2099 || month < 1 || month > 12) return null;
+    if (day != null && (day < 1 || day > 31)) return null;
+    var name = WIKI_MONTH_NAMES[month - 1];
+    return day ? (name + " " + day + ", " + year) : (name + " " + year);
+  }
+
   // Collapses {{templates}} down to their last plain positional parameter —
   // enough for the simple wrappers this table actually uses (nowrap, sort
-  // keys, etc.), without attempting to be a real wikitext engine.
+  // keys, etc.), without attempting to be a real wikitext engine. Date
+  // templates are special-cased above first.
   function resolveWikiTemplates(s) {
     var prev;
     do {
       prev = s;
       s = s.replace(/\{\{([^{}]*)\}\}/g, function (m, inner) {
+        var dateText = resolveDateTemplate(inner);
+        if (dateText) return dateText;
         var parts = inner.split("|");
         for (var i = parts.length - 1; i >= 0; i--) {
           var p = parts[i].trim();
